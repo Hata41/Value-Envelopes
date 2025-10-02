@@ -1,0 +1,50 @@
+\documentclass[border=10pt]{standalone}
+
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+
+\begin{document}
+
+\begin{tikzpicture}
+    \def\mainfolder{RegretCurves_H4_S12_A3_T1000000_Layered}
+
+    \begin{axis}[
+        title={V-Shaping Performance vs. Offline Data Size (K)},
+        xlabel={Fraction of $T$ (T=10^6)},
+        ylabel={Cumulative Regret},
+        width=14cm,
+        height=10cm,
+        grid=major,
+        legend pos=north west, 
+        legend cell align={left},
+        xtick={0,0.2,0.4,0.6,0.8,1.0},
+        xmin=0, xmax=1,
+        y tick label style={/pgf/number format/sci, /pgf/number format/precision=1},
+        xticklabel style={/pgf/number format/fixed}
+    ]
+
+    \addplot[
+        black,
+        dashed,
+        thick,
+        no marks
+    ] table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/Standard_UCBVI.dat};
+    \addlegendentry{Standard UCBVI}
+
+    \addplot[red, mark=square*] 
+        table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=20000/V_Shaping.dat};
+    \addlegendentry{V-Shaping (K=20k)}
+
+    \addplot[orange, mark=triangle*] 
+        table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=40000/V_Shaping.dat};
+    \addlegendentry{V-Shaping (K=40k)}
+
+    \addplot[blue, mark=o] 
+        table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=80000/V_Shaping.dat};
+    \addlegendentry{V-Shaping (K=80k)}
+
+    \end{axis}
+\end{tikzpicture}
+
+\end{document}
