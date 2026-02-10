@@ -1,0 +1,8 @@
+Experiment_Name: SlidingWindow_width0p10
+Horizon_H: 3
+States_S: 9
+Actions_A: 3
+Online_Episodes_T: 1000000
+Offline_Trajectories_K: 60000
+Number_of_Seeds: 4
+Number_of_Jobs: -1

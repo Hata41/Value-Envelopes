@@ -128,4 +128,7 @@ def compute_offline_bounds(
     return {
         'U_values': U_values, 'W_values': W_values, 'U_Q': U_Q,
         'M': M, 'D': D, 'R_next': R_next, 'D_next_max': D_next_max,
+        # Export counts for Count-Based Initialization
+        'N_sa': N_sa_arr,
+        'N_sas': N_sas_arr
     }

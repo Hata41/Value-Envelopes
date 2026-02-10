@@ -16,7 +16,7 @@
         width=14cm,
         height=10cm,
         grid=major,
-        legend pos=north west, 
+        legend pos=north west,
         legend cell align={left},
         xtick={0,0.2,0.4,0.6,0.8,1.0},
         xmin=0, xmax=1,
@@ -36,14 +36,25 @@
         table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=20000/V_Shaping.dat};
     \addlegendentry{V-Shaping (K=20k)}
 
-    \addplot[orange, mark=triangle*] 
+    \addplot[orange, mark=square*] 
         table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=40000/V_Shaping.dat};
     \addlegendentry{V-Shaping (K=40k)}
 
-    \addplot[blue, mark=o] 
+    \addplot[blue, mark=square*] 
         table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=80000/V_Shaping.dat};
     \addlegendentry{V-Shaping (K=80k)}
+    \addplot[red, mark=o] 
+    table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=20000/Count_Init_UCBVI.dat};
+    \addlegendentry{V-Shaping (K=20k)}
 
+    \addplot[orange, mark=o] 
+    table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=40000/Count_Init_UCBVI.dat};
+    \addlegendentry{V-Shaping (K=40k)}
+
+    \addplot[blue, mark=o] 
+    table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=80000/Count_Init_UCBVI.dat};
+    \addlegendentry{V-Shaping (K=80k)}
+    
     \end{axis}
 \end{tikzpicture}
 

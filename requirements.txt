@@ -4,3 +4,4 @@ numba
 scipy
 tqdm
 matplotlib
+pandas

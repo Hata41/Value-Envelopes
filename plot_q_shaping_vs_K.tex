@@ -36,12 +36,24 @@
         table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=20000/Q_Shaping.dat};
     \addlegendentry{Q-Shaping (K=20k)}
 
-    \addplot[orange, mark=triangle*] 
+    \addplot[orange, mark=square*] 
         table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=40000/Q_Shaping.dat};
     \addlegendentry{Q-Shaping (K=40k)}
 
-    \addplot[blue, mark=o] 
+    \addplot[blue, mark=square*] 
         table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=80000/Q_Shaping.dat};
+    \addlegendentry{Q-Shaping (K=80k)}
+
+    \addplot[red, mark=o] 
+    table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=20000/Count_Init_UCBVI.dat};
+    \addlegendentry{Q-Shaping (K=20k)}
+
+    \addplot[orange, mark=o] 
+    table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=40000/Count_Init_UCBVI.dat};
+    \addlegendentry{Q-Shaping (K=40k)}
+
+    \addplot[blue, mark=o] 
+    table[x expr=\thisrow{Episode}/1000000, y=CumulativeRegret] {\mainfolder/K=80000/Count_Init_UCBVI.dat};
     \addlegendentry{Q-Shaping (K=80k)}
     
     \end{axis}
