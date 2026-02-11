@@ -1,0 +1,11 @@
+[
+  {
+    "experiment": "convergence",
+    "h": 4,
+    "s": 12,
+    "a": 3,
+    "t": 10000,
+    "n_seeds": 10,
+    "compile": true
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "experiment": "regret_curves",
+    "h": 20,
+    "s": 60,
+    "a": 3,
+    "t": 10000,
+    "n_seeds": 10,
+    "layered": true,
+    "k_values": [40000, 80000],
+    "compile": true
+  }
+]

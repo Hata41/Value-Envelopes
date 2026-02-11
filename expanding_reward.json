@@ -1,0 +1,12 @@
+[
+  {
+    "experiment": "expanding_reward",
+    "h": 3,
+    "s": 12,
+    "a": 3,
+    "t": 10000,
+    "n_seeds": 10,
+    "k": 60000,
+    "compile": true
+  }
+]
