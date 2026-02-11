@@ -88,6 +88,9 @@ pub struct ExperimentConfig {
 
     #[serde(default = "default_plot_resolution")]
     pub plot_resolution: usize,
+
+    #[serde(default = "default_active_agents")]
+    pub active_agents: Option<Vec<String>>,
 }
 
 fn default_layered() -> bool { true }
@@ -100,6 +103,7 @@ fn default_use_h_split() -> bool { true }
 fn default_seed() -> u64 { 42 }
 fn default_reward_window_width() -> f64 { 0.1 }
 fn default_plot_resolution() -> usize { 200 }
+fn default_active_agents() -> Option<Vec<String>> { None }
 
 impl From<Args> for ExperimentConfig {
     fn from(args: Args) -> Self {
@@ -121,6 +125,7 @@ impl From<Args> for ExperimentConfig {
             seed: args.seed,
             reward_window_width: args.reward_window_width,
             plot_resolution: args.plot_resolution,
+            active_agents: None,
         }
     }
 }
@@ -232,32 +237,65 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
         agent_seeds.push(rng.r#gen::<u64>());
     }
 
-    println!("Running Standard UCBVI...");
-    let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
-        run_standard_ucbvi(&mdp, t, delta, seed)
-    }).collect();
-    save_regret_data(&format!("{}/Standard_UCBVI.dat", folder_name), &standard_results, t, config.plot_resolution);
+    let default_agents = vec!["standard_hoeffding".to_string(), "v_shaping".to_string(), "q_shaping".to_string(), "count_init_hoeffding".to_string()];
+    let active_agents = config.active_agents.clone().unwrap_or(default_agents);
+
+    // Standard Agents (No Offline Data)
+    if active_agents.contains(&"standard_hoeffding".to_string()) {
+        println!("Running Standard UCBVI (Hoeffding)...");
+        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
+            run_standard_ucbvi(&mdp, t, delta, seed)
+        }).collect();
+        // Use legacy name if using default config, else specific name? 
+        // To keep it simple and consistent with new plan, let's use the specific name. 
+        // But for backward compatibility with plotting (if not updated yet), I should be careful. 
+        // The plan says "Update Plotting", so I am free to change filenames.
+        save_regret_data(&format!("{}/Standard_UCBVI_Hoeffding.dat", folder_name), &standard_results, t, config.plot_resolution);
+        
+        // Also save as Standard_UCBVI.dat for legacy plotting compatibility if needed, 
+        // or just rely on plotting update. The plan says "Update Plotting to handle these new keys".
+    }
+
+    if active_agents.contains(&"standard_bernstein".to_string()) {
+        println!("Running Standard UCBVI (Bernstein)...");
+        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
+            run_standard_ucbvi_bernstein(&mdp, t, delta, seed)
+        }).collect();
+        save_regret_data(&format!("{}/Standard_UCBVI_Bernstein.dat", folder_name), &standard_results, t, config.plot_resolution);
+    }
 
     for &k in &k_values {
         println!("Running shaping agents for K={}...", k);
         let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64));
         let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), config.use_h_split);
 
-        let algos = vec!["V_Shaping", "Q_Shaping", "Count_Init_UCBVI"];
-        for algo in algos {
-            let results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
-                match algo {
-                    "V_Shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed),
-                    "Q_Shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed),
-                    "Count_Init_UCBVI" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed),
-                    _ => unreachable!(),
-                }
-            }).collect();
-            save_regret_data(&format!("{}/K={}/{}.dat", folder_name, k, algo), &results, t, config.plot_resolution);
+        for agent in &active_agents {
+            let (run_agent, filename) = match agent.as_str() {
+                "v_shaping" => (true, "V_Shaping.dat"),
+                "q_shaping" => (true, "Q_Shaping.dat"),
+                "count_init_hoeffding" => (true, "Count_Init_UCBVI_Hoeffding.dat"),
+                "count_init_bernstein" => (true, "Count_Init_UCBVI_Bernstein.dat"),
+                _ => (false, ""),
+            };
+
+            if run_agent {
+                let results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
+                    match agent.as_str() {
+                        "v_shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed),
+                        "q_shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed),
+                        "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false),
+                        "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true),
+                        _ => unreachable!(),
+                    }
+                }).collect();
+                save_regret_data(&format!("{}/K={}/{}", folder_name, k, filename), &results, t, config.plot_resolution);
+            }
         }
     }
 
     println!("Generating plots...");
+    // Pass active agents to plotting or update plotting to scan for files?
+    // The plan says "Update plot_regret_curves to handle these new keys".
     if let Err(e) = plotting::plot_regret_curves(&folder_name, "V_Shaping", "png/rust_v_shaping.png") {
         eprintln!("Error plotting V_Shaping: {}", e);
     }
@@ -361,7 +399,7 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
                 let (regrets, _) = match algo {
                     "Bonus_Shaping_Only" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed),
                     "Upper_Bonus_Shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed),
-                    "Count_Init_UCBVI" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed),
+                    "Count_Init_UCBVI" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false),
                     _ => unreachable!(),
                 };
                 regrets.iter().sum::<f64>()
@@ -558,13 +596,22 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
     let colors = vec!["red", "orange", "blue", "green", "purple"];
     for (i, &k) in k_values.iter().enumerate() {
         let color = colors[i % colors.len()];
+        // V_Shaping
         add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/V_Shaping.dat}};
     \addlegendentry{{V-Shaping (K={}k)}}
 "#, color, config.t, k, k/1000));
-        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, error bars/.cd, y dir=both, y explicit] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K={}k)}}
+        
+        // Count Init Hoeffding
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, dashed, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Hoeffding.dat}};
+    \addlegendentry{{Count-Init Hoeffding (K={}k)}}
+"#, color, config.t, k, k/1000));
+
+         // Count Init Bernstein
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=*, solid, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Bernstein.dat}};
+    \addlegendentry{{Count-Init Bernstein (K={}k)}}
 "#, color, config.t, k, k/1000));
     }
 
@@ -589,18 +636,29 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
         y tick label style={{/pgf/number format/sci, /pgf/number format/precision=1}},
         xticklabel style={{/pgf/number format/fixed}}
     ]
+    % Standard Hoeffding
     \addplot[
         black,
         dashed,
         thick,
         no marks,
         error bars/.cd, y dir=both, y explicit
-    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI.dat}};
-    \addlegendentry{{Standard UCBVI}}
+    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI_Hoeffding.dat}};
+    \addlegendentry{{Standard Hoeffding}}
+
+    % Standard Bernstein
+    \addplot[
+        black,
+        solid,
+        very thick,
+        no marks,
+        error bars/.cd, y dir=both, y explicit
+    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI_Bernstein.dat}};
+    \addlegendentry{{Standard Bernstein}}
 {}
     \end{{axis}}
 \end{{tikzpicture}}
-\end{{document}}"#, config.h, config.s, config.a, config.t, layered_str, config.t, config.t, add_plots)
+\end{{document}}"#, config.h, config.s, config.a, config.t, layered_str, config.t, config.t, config.t, add_plots)
 }
 
 fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
@@ -611,13 +669,22 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
     let colors = vec!["red", "orange", "blue", "green", "purple"];
     for (i, &k) in k_values.iter().enumerate() {
         let color = colors[i % colors.len()];
+        // Q Shaping
         add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Q_Shaping.dat}};
     \addlegendentry{{Q-Shaping (K={}k)}}
 "#, color, config.t, k, k/1000));
-        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, error bars/.cd, y dir=both, y explicit] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K={}k)}}
+        
+        // Count Init Hoeffding 
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, dashed, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Hoeffding.dat}};
+    \addlegendentry{{Count-Init Hoeffding (K={}k)}}
+"#, color, config.t, k, k/1000));
+
+        // Count Init Bernstein
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=*, solid, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Bernstein.dat}};
+    \addlegendentry{{Count-Init Bernstein (K={}k)}}
 "#, color, config.t, k, k/1000));
     }
 
@@ -642,18 +709,29 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
         y tick label style={{/pgf/number format/sci, /pgf/number format/precision=1}},
         xticklabel style={{/pgf/number format/fixed}}
     ]
+    % Standard Hoeffding
     \addplot[
         black,
         dashed,
         thick,
         no marks,
         error bars/.cd, y dir=both, y explicit
-    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI.dat}};
-    \addlegendentry{{Standard UCBVI}}
+    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI_Hoeffding.dat}};
+    \addlegendentry{{Standard Hoeffding}}
+    
+    % Standard Bernstein
+    \addplot[
+        black,
+        solid,
+        very thick,
+        no marks,
+        error bars/.cd, y dir=both, y explicit
+    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI_Bernstein.dat}};
+    \addlegendentry{{Standard Bernstein}}
 {}
     \end{{axis}}
 \end{{tikzpicture}}
-\end{{document}}"#, config.h, config.s, config.a, config.t, layered_str, config.t, config.t, add_plots)
+\end{{document}}"#, config.h, config.s, config.a, config.t, layered_str, config.t, config.t, config.t, add_plots)
 }
 
 fn generate_mdp_tex(config: &ExperimentConfig) -> String {

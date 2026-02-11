@@ -12,6 +12,14 @@
     "use_h_split": true,
     "seed": 42,
     "reward_window_width": 0.1,
-    "plot_resolution": 20
+    "plot_resolution": 20,
+    "active_agents": [
+      "standard_hoeffding",
+      "standard_bernstein",
+      "count_init_hoeffding",
+      "count_init_bernstein",
+      "v_shaping",
+      "q_shaping"
+    ]
   }
 ]
