@@ -1,13 +1,17 @@
 [
   {
     "experiment": "regret_curves",
-    "h": 20,
-    "s": 60,
+    "h": 4,
+    "s": 12,
     "a": 3,
     "t": 10000,
     "n_seeds": 10,
     "layered": true,
-    "k_values": [40000, 80000],
-    "compile": true
+    "k_values": [4000, 8000],
+    "compile": true,
+    "use_h_split": true,
+    "seed": 42,
+    "reward_window_width": 0.1,
+    "plot_resolution": 20
   }
 ]

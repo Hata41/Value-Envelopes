@@ -34,6 +34,18 @@ pub struct Args {
 
     #[arg(long, default_value_t = true)]
     pub compile: bool,
+
+    #[arg(long)]
+    pub no_h_split: bool,
+
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+
+    #[arg(long, default_value_t = 0.1)]
+    pub reward_window_width: f64,
+
+    #[arg(long, default_value_t = 200)]
+    pub plot_resolution: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +76,18 @@ pub struct ExperimentConfig {
 
     #[serde(default = "default_compile")]
     pub compile: bool,
+
+    #[serde(default = "default_use_h_split")]
+    pub use_h_split: bool,
+
+    #[serde(default = "default_seed")]
+    pub seed: u64,
+
+    #[serde(default = "default_reward_window_width")]
+    pub reward_window_width: f64,
+
+    #[serde(default = "default_plot_resolution")]
+    pub plot_resolution: usize,
 }
 
 fn default_layered() -> bool { true }
@@ -72,6 +96,10 @@ fn default_terminal_reward() -> (f64, f64) { (0.0, 1.0) }
 fn default_delta() -> f64 { 0.05 }
 fn default_k() -> usize { 60000 }
 fn default_compile() -> bool { true }
+fn default_use_h_split() -> bool { true }
+fn default_seed() -> u64 { 42 }
+fn default_reward_window_width() -> f64 { 0.1 }
+fn default_plot_resolution() -> usize { 200 }
 
 impl From<Args> for ExperimentConfig {
     fn from(args: Args) -> Self {
@@ -89,6 +117,10 @@ impl From<Args> for ExperimentConfig {
             k_values: None,
             k: 6000, 
             compile: args.compile,
+            use_h_split: !args.no_h_split,
+            seed: args.seed,
+            reward_window_width: args.reward_window_width,
+            plot_resolution: args.plot_resolution,
         }
     }
 }
@@ -174,7 +206,7 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     let t = config.t;
     let n_seeds = config.n_seeds;
     let delta = config.delta;
-    let master_seed = 42;
+    let master_seed = config.seed;
 
     let mdp = TabularMDP::random(h, s, a, config.layered, Some(config.intermediate_reward), Some(config.terminal_reward), master_seed);
     
@@ -204,12 +236,12 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
         run_standard_ucbvi(&mdp, t, delta, seed)
     }).collect();
-    save_regret_data(&format!("{}/Standard_UCBVI.dat", folder_name), &standard_results, t);
+    save_regret_data(&format!("{}/Standard_UCBVI.dat", folder_name), &standard_results, t, config.plot_resolution);
 
     for &k in &k_values {
         println!("Running shaping agents for K={}...", k);
         let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64));
-        let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), true);
+        let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), config.use_h_split);
 
         let algos = vec!["V_Shaping", "Q_Shaping", "Count_Init_UCBVI"];
         for algo in algos {
@@ -221,7 +253,7 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
                     _ => unreachable!(),
                 }
             }).collect();
-            save_regret_data(&format!("{}/K={}/{}.dat", folder_name, k, algo), &results, t);
+            save_regret_data(&format!("{}/K={}/{}.dat", folder_name, k, algo), &results, t, config.plot_resolution);
         }
     }
 
@@ -241,7 +273,7 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
-fn save_regret_data(path: &str, results: &[(Vec<f64>, Vec<f64>)], t: usize) {
+fn save_regret_data(path: &str, results: &[(Vec<f64>, Vec<f64>)], t: usize, plot_resolution: usize) {
     let n_seeds = results.len();
     let mut cumulative_regrets = Array2::<f64>::zeros((n_seeds, t));
     for (i, (regrets, _)) in results.iter().enumerate() {
@@ -255,7 +287,7 @@ fn save_regret_data(path: &str, results: &[(Vec<f64>, Vec<f64>)], t: usize) {
     let mean = cumulative_regrets.mean_axis(Axis(0)).unwrap();
     let std = cumulative_regrets.std_axis(Axis(0), 0.0);
 
-    let num_points = 200.min(t);
+    let num_points = plot_resolution.min(t);
     let mut file = File::create(path).unwrap();
     writeln!(file, "Episode CumulativeRegret StdDev").unwrap();
 
@@ -287,7 +319,7 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
     let x_values: Vec<f64> = if mode == "ExpandingReward" {
         (0..num_points).map(|i| 0.01 * (1.0 / 0.01 as f64).powf(i as f64 / (num_points - 1) as f64)).collect()
     } else {
-        let width = 0.1;
+        let width = config.reward_window_width;
         (0..num_points).map(|i| i as f64 * (1.0 - width) / (num_points - 1) as f64).collect()
     };
 
@@ -301,13 +333,13 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         let terminal_range = if mode == "ExpandingReward" {
             (1.0 - x, 1.0)
         } else {
-            let width = 0.1;
+            let width = config.reward_window_width;
             (x, x + width)
         };
 
         println!("Running for x={:.4}, R_term=({:.3}, {:.3})", x, terminal_range.0, terminal_range.1);
         
-        let mdp_seed = (x * 100000.0) as u64;
+        let mdp_seed = config.seed + (x * 100000.0) as u64;
         let mdp = TabularMDP::random(h, s, a, config.layered, Some(config.intermediate_reward), Some(terminal_range), mdp_seed);
         
         let mut rng = rand::rngs::StdRng::seed_from_u64(mdp_seed + 1);
@@ -317,7 +349,7 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         }
 
         let dataset = generate_dataset(&mdp, k, Some(mdp_seed + 2));
-        let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(mdp_seed + 3), true);
+        let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(mdp_seed + 3), config.use_h_split);
 
         let baseline_results: Vec<f64> = agent_seeds.par_iter().map(|&seed| {
             let (regrets, _) = run_standard_ucbvi(&mdp, t, delta, seed);
@@ -350,7 +382,7 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
     for (algo, stats) in final_performance {
         let path = format!("{}/{}.dat", folder_name, algo);
         let mut file = File::create(&path).unwrap();
-        writeln!(file, "# X_Value Mean_Improvement Std_Improvement").unwrap();
+        writeln!(file, "X_Value Mean_Improvement Std_Improvement").unwrap();
         for (i, &x) in x_values.iter().enumerate() {
             let (mean, std) = stats[i];
             writeln!(file, "{:.8} {:.8} {:.8}", x, mean, std).unwrap();
@@ -376,7 +408,7 @@ fn run_convergence_experiment(config: &ExperimentConfig) -> Result<(), Box<dyn s
     let s_total = config.s;
     let a_total = config.a;
     let delta = config.delta;
-    let master_seed = 42;
+    let master_seed = config.seed;
     let h_specific = 2; // Fixed as in python script
 
     let mdp = TabularMDP::random(h_total, s_total, a_total, config.layered, Some(config.intermediate_reward), Some(config.terminal_reward), master_seed);
@@ -422,7 +454,7 @@ fn run_convergence_experiment(config: &ExperimentConfig) -> Result<(), Box<dyn s
         print!("\rProcessing K={}...          ", k);
         std::io::stdout().flush().unwrap();
         let subset = &large_dataset[0..k];
-        let bounds = compute_offline_bounds(&mdp, subset, delta, Some(master_seed + k as u64), true);
+        let bounds = compute_offline_bounds(&mdp, subset, delta, Some(master_seed + k as u64), config.use_h_split);
         
         let u_slice = bounds.u_values.slice(s![h_specific, s_start..s_end]);
         let w_slice = bounds.w_values.slice(s![h_specific, s_start..s_end]);
@@ -526,12 +558,12 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
     let colors = vec!["red", "orange", "blue", "green", "purple"];
     for (i, &k) in k_values.iter().enumerate() {
         let color = colors[i % colors.len()];
-        add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/V_Shaping.dat}};
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/V_Shaping.dat}};
     \addlegendentry{{V-Shaping (K={}k)}}
 "#, color, config.t, k, k/1000));
-        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
     \addlegendentry{{Count-Init (K={}k)}}
 "#, color, config.t, k, k/1000));
     }
@@ -561,8 +593,9 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
         black,
         dashed,
         thick,
-        no marks
-    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/Standard_UCBVI.dat}};
+        no marks,
+        error bars/.cd, y dir=both, y explicit
+    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI.dat}};
     \addlegendentry{{Standard UCBVI}}
 {}
     \end{{axis}}
@@ -578,12 +611,12 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
     let colors = vec!["red", "orange", "blue", "green", "purple"];
     for (i, &k) in k_values.iter().enumerate() {
         let color = colors[i % colors.len()];
-        add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/Q_Shaping.dat}};
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Q_Shaping.dat}};
     \addlegendentry{{Q-Shaping (K={}k)}}
 "#, color, config.t, k, k/1000));
-        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, error bars/.cd, y dir=both, y explicit] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
     \addlegendentry{{Count-Init (K={}k)}}
 "#, color, config.t, k, k/1000));
     }
@@ -613,8 +646,9 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
         black,
         dashed,
         thick,
-        no marks
-    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/Standard_UCBVI.dat}};
+        no marks,
+        error bars/.cd, y dir=both, y explicit
+    ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/Standard_UCBVI.dat}};
     \addlegendentry{{Standard UCBVI}}
 {}
     \end{{axis}}
@@ -648,14 +682,14 @@ fn generate_mdp_tex(config: &ExperimentConfig) -> String {
         legend columns=2,
         legend cell align={{left}}
     ]
-    \addplot[purple, solid, thick, mark=square*]
-        table {{\folderpath/Bonus_Shaping_Only.dat}};
+    \addplot[purple, solid, thick, mark=square*, error bars/.cd, y dir=both, y explicit]
+        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/Bonus_Shaping_Only.dat}};
     \addlegendentry{{Full-Bonus}}
-    \addplot[green!70!black, solid, thick, mark=o]
-        table {{\folderpath/Upper_Bonus_Shaping.dat}};
+    \addplot[green!70!black, solid, thick, mark=o, error bars/.cd, y dir=both, y explicit]
+        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/Upper_Bonus_Shaping.dat}};
     \addlegendentry{{Upper-Bonus}}
-    \addplot[blue, solid, thick, mark=triangle*]
-        table {{\folderpath/Count_Init_UCBVI.dat}};
+    \addplot[blue, solid, thick, mark=triangle*, error bars/.cd, y dir=both, y explicit]
+        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/Count_Init_UCBVI.dat}};
     \addlegendentry{{Count-Init}}
     \end{{{}}}
 \end{{tikzpicture}}
