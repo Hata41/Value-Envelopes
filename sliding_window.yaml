@@ -2,12 +2,14 @@
   h: 3
   s: 9
   a: 3
-  t: 10000
+  t: 1000000
   n_seeds: 1
   k: 6000
+  baseline_agents: ["standard_bernstein"]
+  shaping_agents: ["v_shaping", "q_shaping", "count_init_hoeffding"]
   compile: true
   use_h_split: true
   seed: 42
   reward_window_width: 0.1
-  num_points: 10
+  num_points: 5
   plot_resolution: 200

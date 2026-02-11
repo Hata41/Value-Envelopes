@@ -5,6 +5,8 @@
   t: 10000
   n_seeds: 10
   k: 60000
+  baseline_agents: ["standard_bernstein"]
+  shaping_agents: ["v_shaping", "q_shaping", "count_init_hoeffding"]
   compile: true
   use_h_split: true
   seed: 42

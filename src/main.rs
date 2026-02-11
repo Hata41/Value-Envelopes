@@ -393,8 +393,15 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         (0..num_points).map(|i| i as f64 * (1.0 - width) / (num_points - 1) as f64).collect()
     };
 
-    let default_shaping_algos = vec!["Bonus_Shaping_Only".to_string(), "Upper_Bonus_Shaping".to_string(), "Count_Init_UCBVI".to_string()];
+    let default_shaping_algos = vec!["v_shaping".to_string(), "q_shaping".to_string(), "count_init_hoeffding".to_string()];
     let shaping_agents = config.shaping_agents.as_ref().unwrap_or(&default_shaping_algos);
+
+    let baseline_agent = config.baseline_agents.as_ref()
+        .and_then(|v| v.first())
+        .map(|s| s.as_str())
+        .unwrap_or("standard_hoeffding");
+    
+    println!("Reference Baseline: {}", baseline_agent);
 
     let mut final_performance: std::collections::HashMap<String, Vec<(f64, f64)>> = std::collections::HashMap::new();
     for algo in shaping_agents {
@@ -424,7 +431,14 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(mdp_seed + 3), config.use_h_split);
 
         let baseline_results: Vec<f64> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
-            let (regrets, _) = run_standard_ucbvi(&mdp, t, delta, seed, i == 0);
+            let (regrets, _) = match baseline_agent {
+                "standard_hoeffding" => run_standard_ucbvi(&mdp, t, delta, seed, i == 0),
+                "standard_bernstein" => run_standard_ucbvi_bernstein(&mdp, t, delta, seed, i == 0),
+                _ => {
+                    if i == 0 { eprintln!("Warning: Unknown baseline agent '{}'. Falling back to standard_hoeffding.", baseline_agent); }
+                    run_standard_ucbvi(&mdp, t, delta, seed, i == 0)
+                }
+            };
             regrets.iter().sum::<f64>()
         }).collect();
 
