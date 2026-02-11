@@ -8,61 +8,52 @@
 
 \begin{standalonefigure}
 \begin{tikzpicture}
-    \def\folderpath{../data/ExpandingReward}
+    \def\folderpath{data/ExpandingReward}
+
     \begin{semilogxaxis}[
+
         title={Expanding Reward: Bonus Shaping Comparison},
-        xlabel={Reward Range Width ($x$) in $R_{\text{term}} = [1-x, 1.0]},
+
+        xlabel={Reward Range Width x},
+
         ylabel={Relative Regret Improvement},
+
         width=12cm, height=8cm, grid=major,
+
         ymin=-0.1, ymax=1.0,
+
         yticklabel={\pgfmathparse{\tick*100}\pgfmathprintnumber[fixed, precision=0]{\pgfmathresult}\%},
+
         legend style={at={(0.5,0.98)}, anchor=north, draw=none, fill=none},
+
         legend columns=2,
+
         legend cell align={left}
+
     ]
+
     \addplot[purple, solid, thick, mark=square*]
+
         table {\folderpath/Bonus_Shaping_Only.dat};
+
     \addlegendentry{Full-Bonus}
 
     \addplot[green!70!black, solid, thick, mark=o]
+
         table {\folderpath/Upper_Bonus_Shaping.dat};
+
     \addlegendentry{Upper-Bonus}
 
-    \addplot[blue!70!black, solid, thick, mark=o]
+    \addplot[blue, solid, thick, mark=triangle*]
+
         table {\folderpath/Count_Init_UCBVI.dat};
-    \addlegendentry{Count-Init UCBVI}   
+
+    \addlegendentry{Count-Init}
 
     \end{semilogxaxis}
+
 \end{tikzpicture}
-\end{standalonefigure}
 
-\begin{standalonefigure}
-\begin{tikzpicture}
-    \def\folderpath{../data/SlidingWindow_width0p10}
-    \begin{axis}[
-        title={Sliding Window: Bonus Shaping Comparison},
-        xlabel={Reward Window Start Location ($x$) in $R_{\text{term}} = [x, x+0.1]},
-        ylabel={Relative Regret Improvement},
-        width=12cm, height=8cm, grid=major,
-        ymin=-0.1, ymax=1.0,
-        yticklabel={\pgfmathparse{\tick*100}\pgfmathprintnumber[fixed, precision=0]{\pgfmathresult}\%},
-        legend style={at={(0.5,0.98)}, anchor=north, draw=none, fill=none},
-        legend columns=2,
-        legend cell align={left}
-    ]
-    \addplot[purple, solid, thick, mark=square*]
-        table {\folderpath/Bonus_Shaping_Only.dat};
-    \addlegendentry{Full-Bonus}
-
-    \addplot[green!70!black, solid, thick, mark=o]
-        table {\folderpath/Upper_Bonus_Shaping.dat};
-    \addlegendentry{Upper-Bonus}
-
-    \addplot[blue!70!black, solid, thick, mark=o]
-    table {\folderpath/Count_Init_UCBVI.dat};
-    \addlegendentry{Count-Init UCBVI}  
-    \end{axis}
-\end{tikzpicture}
 \end{standalonefigure}
 
 \end{document}
