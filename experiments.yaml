@@ -11,9 +11,10 @@
   seed: 42
   reward_window_width: 0.1
   plot_resolution: 200
-  active_agents:
+  baseline_agents:
     - standard_hoeffding
     - standard_bernstein
+  shaping_agents:
     - count_init_hoeffding
     - count_init_bernstein
     - v_shaping
