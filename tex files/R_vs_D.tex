@@ -28,7 +28,7 @@
     thin,
     mark=square*,
     mark size=1.5pt
-] table[x=K, y=D_s6] {R_vs_D.dat};
+] table[x=K, y=D_s6] {../data/R_vs_D.dat};
 \addlegendentry{$D_h(s)$ (Local Widths)}
 
 \addplot+[
@@ -38,7 +38,7 @@
     mark=square*,
     mark size=1.5pt,
     forget plot
-] table[x=K, y=D_s7] {R_vs_D.dat};
+] table[x=K, y=D_s7] {../data/R_vs_D.dat};
 
 \addplot+[
     draw={rgb,1:red,1;green,0.55;blue,0}, 
@@ -47,14 +47,14 @@
     mark=square*,
     mark size=1.5pt,
     forget plot
-] table[x=K, y=D_s8] {R_vs_D.dat};
+] table[x=K, y=D_s8] {../data/R_vs_D.dat};
 
 \addplot[blue, mark=*, thick] 
-    table[x=K, y=R_h_layer] {R_vs_D.dat};
+    table[x=K, y=R_h_layer] {../data/R_vs_D.dat};
 \addlegendentry{$R_h$ (In-Layer Range)}
 
 \addplot[red, dashed, thick, no marks] 
-    table[x=K, y=span_h_layer] {R_vs_D.dat};
+    table[x=K, y=span_h_layer] {../data/R_vs_D.dat};
 \addlegendentry{$\mathrm{Range}(V_h^*)$}
 
 \end{axis}

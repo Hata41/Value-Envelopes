@@ -3,6 +3,8 @@ use clap::Parser;
 use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::Write;
+use std::path::Path;
+use std::process::Command;
 use value_envelopes::*;
 use ndarray::prelude::*;
 
@@ -31,6 +33,11 @@ struct Args {
 }
 
 fn main() {
+    // Create output directories if they don't exist
+    fs::create_dir_all("data").unwrap();
+    fs::create_dir_all("png").unwrap();
+    fs::create_dir_all("pdf").unwrap();
+
     let args = Args::parse();
 
     match args.experiment.as_str() {
@@ -53,7 +60,7 @@ fn run_regret_curves(args: &Args) {
 
     let mdp = TabularMDP::random(h, s, a, true, Some((0.0, 0.0)), Some((0.0, 1.0)), master_seed);
     
-    let folder_name = format!("RegretCurves_H{}_S{}_A{}_T{}_Layered", h, s, a, t);
+    let folder_name = format!("data/RegretCurves_H{}_S{}_A{}_T{}_Layered", h, s, a, t);
     fs::create_dir_all(&folder_name).unwrap();
 
     let k_values = vec![h * 10000]; // matching Python's default [int(H_val * 1 * 1e4)]
@@ -94,10 +101,10 @@ fn run_regret_curves(args: &Args) {
     }
 
     println!("Generating plots...");
-    if let Err(e) = plotting::plot_regret_curves(&folder_name, "V_Shaping", "rust_v_shaping.png") {
+    if let Err(e) = plotting::plot_regret_curves(&folder_name, "V_Shaping", "png/rust_v_shaping.png") {
         eprintln!("Error plotting V_Shaping: {}", e);
     }
-    if let Err(e) = plotting::plot_regret_curves(&folder_name, "Q_Shaping", "rust_q_shaping.png") {
+    if let Err(e) = plotting::plot_regret_curves(&folder_name, "Q_Shaping", "png/rust_q_shaping.png") {
         eprintln!("Error plotting Q_Shaping: {}", e);
     }
 }
@@ -138,7 +145,7 @@ fn run_mdp_trials(args: &Args, mode: &str) {
     let k = 60000;
     let num_points = 10;
 
-    let folder_name = mode.to_string();
+    let folder_name = format!("data/{}", mode);
     fs::create_dir_all(&folder_name).unwrap();
 
     let x_values: Vec<f64> = if mode == "ExpandingReward" {
@@ -216,7 +223,7 @@ fn run_mdp_trials(args: &Args, mode: &str) {
     }
 
     println!("Generating plots...");
-    if let Err(e) = plotting::plot_mdp_trials(&folder_name, mode, &format!("{}.png", mode), mode == "ExpandingReward") {
+    if let Err(e) = plotting::plot_mdp_trials(&folder_name, mode, &format!("png/{}.png", mode), mode == "ExpandingReward") {
         eprintln!("Error plotting MDP trials ({}): {}", mode, e);
     }
 }
@@ -260,7 +267,7 @@ fn run_convergence_experiment(args: &Args) {
     println!("Generating dataset (K_max={})...", k_max);
     let large_dataset = generate_dataset(&mdp, k_max, Some(master_seed + 1));
 
-    let mut file = File::create("R_vs_D.dat").unwrap();
+    let mut file = File::create("data/R_vs_D.dat").unwrap();
     let mut header = String::from("K");
     for s in s_start..s_end {
         header.push_str(&format!(" D_s{}", s));
@@ -290,10 +297,76 @@ fn run_convergence_experiment(args: &Args) {
         line.push_str(&format!(" {:.6} {:.6}", r_h_layer, span_h_layer));
         writeln!(file, "{}", line).unwrap();
     }
-    println!("\nSaved R_vs_D.dat");
+    println!("\nSaved data/R_vs_D.dat");
 
     println!("Generating plots...");
-    if let Err(e) = plotting::plot_convergence("R_vs_D.dat", "rust_R_vs_D.png") {
+    if let Err(e) = plotting::plot_convergence("data/R_vs_D.dat", "png/rust_R_vs_D.png") {
         eprintln!("Error plotting convergence: {}", e);
     }
+
+    // Compile LaTeX files and move PDFs
+    if let Err(e) = compile_and_move_pdfs() {
+        eprintln!("Error compiling PDFs: {}", e);
+    }
+}
+
+fn compile_and_move_pdfs() -> Result<(), Box<dyn std::error::Error>> {
+
+    let tex_dir = Path::new("tex files");
+    let pdf_dir = Path::new("pdf");
+
+    // List of tex files
+    let tex_files = vec![
+        "plot_v_shaping_vs_K.tex",
+        "plot_q_shaping_vs_K.tex",
+        "mdp_trials.tex",
+        "R_vs_D.tex",
+    ];
+
+    for tex_file in tex_files {
+        let tex_path = tex_dir.join(tex_file);
+        if !tex_path.exists() {
+            continue;
+        }
+
+        // Update the path definitions in the tex file
+        update_tex_paths(&tex_path)?;
+
+        // Compile with pdflatex
+        let output = Command::new("pdflatex")
+            .arg("-output-directory")
+            .arg(tex_dir)
+            .arg(&tex_path)
+            .output()?;
+
+        if !output.status.success() {
+            eprintln!("pdflatex failed for {}: {}", tex_file, String::from_utf8_lossy(&output.stderr));
+            continue;
+        }
+
+        // Move the generated PDF to pdf/ directory
+        let pdf_file = tex_path.with_extension("pdf");
+        if pdf_file.exists() {
+            let target_pdf = pdf_dir.join(pdf_file.file_name().unwrap());
+            fs::rename(&pdf_file, &target_pdf)?;
+            println!("Moved {} to {}", pdf_file.display(), target_pdf.display());
+        }
+    }
+
+    Ok(())
+}
+
+fn update_tex_paths(tex_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let content = fs::read_to_string(tex_path)?;
+    let updated_content = content
+        .replace("\\def\\mainfolder{RegretCurves_", "\\def\\mainfolder{../data/RegretCurves_")
+        .replace("\\def\\folderpath{ExpandingReward}", "\\def\\folderpath{../data/ExpandingReward}")
+        .replace("\\def\\folderpath{SlidingWindow_width0p10}", "\\def\\folderpath{../data/SlidingWindow_width0p10}")
+        .replace("{R_vs_D.dat}", "{../data/R_vs_D.dat}");
+
+    if updated_content != content {
+        fs::write(tex_path, updated_content)?;
+    }
+
+    Ok(())
 }

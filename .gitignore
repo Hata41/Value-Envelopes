@@ -114,3 +114,6 @@ dmypy.json
 RegretCurves_*/
 ExpandingReward/
 SlidingWindow*/
+
+# LaTeX auxiliary files
+*.aux
