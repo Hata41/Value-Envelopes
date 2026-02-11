@@ -1,6 +1,7 @@
 use rand::{SeedableRng, Rng};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use serde_yaml;
 use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::Write;
@@ -132,7 +133,7 @@ impl From<Args> for ExperimentConfig {
 
 #[derive(Parser)]
 struct Cli {
-    /// Path to a JSON config file containing a list of experiments
+    /// Path to a YAML config file containing a list of experiments
     #[arg(short, long)]
     config: Option<String>,
 
@@ -165,12 +166,12 @@ fn load_configs(path: &str) -> Vec<ExperimentConfig> {
     let content = fs::read_to_string(path).expect(&format!("Failed to read config file: {}", path));
     
     // Try parsing as a list of experiment configs first
-    if let Ok(configs) = serde_json::from_str::<Vec<ExperimentConfig>>(&content) {
+    if let Ok(configs) = serde_yaml::from_str::<Vec<ExperimentConfig>>(&content) {
         return configs;
     }
 
     // Try parsing as a list of paths to other config files
-    if let Ok(paths) = serde_json::from_str::<Vec<String>>(&content) {
+    if let Ok(paths) = serde_yaml::from_str::<Vec<String>>(&content) {
         let mut all_configs = Vec::new();
         for sub_path in paths {
             all_configs.extend(load_configs(&sub_path));
@@ -179,11 +180,11 @@ fn load_configs(path: &str) -> Vec<ExperimentConfig> {
     }
 
     // Try parsing as a single experiment config
-    if let Ok(config) = serde_json::from_str::<ExperimentConfig>(&content) {
+    if let Ok(config) = serde_yaml::from_str::<ExperimentConfig>(&content) {
         return vec![config];
     }
 
-    panic!("Failed to parse config JSON at {}. It must be a single ExperimentConfig, a list of ExperimentConfigs, or a list of paths (strings).", path);
+    panic!("Failed to parse config YAML at {}. It must be a single ExperimentConfig, a list of ExperimentConfigs, or a list of paths (strings).", path);
 }
 
 fn execute_experiment(config: &ExperimentConfig) {

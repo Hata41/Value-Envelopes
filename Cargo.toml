@@ -9,6 +9,7 @@ rand = "0.8"
 rayon = "1.7"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 clap = { version = "4.3", features = ["derive"] }
 ndarray-rand = "0.14"
 plotters = "0.3"
