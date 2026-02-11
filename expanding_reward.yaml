@@ -2,11 +2,11 @@
   h: 3
   s: 12
   a: 3
-  t: 10000
+  t: 1000000
   n_seeds: 10
   k: 60000
   baseline_agents: ["standard_bernstein"]
-  shaping_agents: ["v_shaping", "q_shaping", "count_init_hoeffding"]
+  shaping_agents: ["Bonus_Shaping_Only", "Upper_Bonus_Shaping", "count_init_bernstein"]
   compile: true
   use_h_split: true
   seed: 42

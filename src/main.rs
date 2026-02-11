@@ -384,6 +384,10 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
     let num_points = config.num_points;
 
     let folder_name = format!("data/{}", mode);
+    // Purge old results to avoid "ghost" curves in plots
+    if Path::new(&folder_name).exists() {
+        fs::remove_dir_all(&folder_name)?;
+    }
     fs::create_dir_all(&folder_name).unwrap();
 
     let x_values: Vec<f64> = if mode == "ExpandingReward" {
@@ -445,8 +449,10 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         for algo in shaping_agents {
             let algo_results: Vec<f64> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
                 let (regrets, _) = match algo.as_str() {
-                    "Bonus_Shaping_Only" | "v_shaping" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed, i == 0),
-                    "Upper_Bonus_Shaping" | "q_shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                    "v_shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                    "q_shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                    "Bonus_Shaping_Only" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                    "Upper_Bonus_Shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
                     "Count_Init_UCBVI" | "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false, i == 0),
                     "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true, i == 0),
                     _ => (vec![0.0; t], vec![0.0; t])
@@ -861,6 +867,9 @@ fn generate_mdp_tex(config: &ExperimentConfig) -> String {
 
     let folder_path = format!("data/{}", folder);
     let mut add_plots = String::new();
+
+    let default_shaping_algos = vec!["v_shaping".to_string(), "q_shaping".to_string(), "count_init_hoeffding".to_string()];
+    let shaping_agents = config.shaping_agents.as_ref().unwrap_or(&default_shaping_algos);
     
     let possible_plots = vec![
         ("Bonus_Shaping_Only.dat", "Full-Bonus", "purple", "square*"),
@@ -874,7 +883,8 @@ fn generate_mdp_tex(config: &ExperimentConfig) -> String {
 
     for (file, label, color, mark) in possible_plots {
         let full_path = format!("{}/{}", folder_path, file);
-        if Path::new(&full_path).exists() {
+        let agent_id = file.replace(".dat", "");
+        if shaping_agents.contains(&agent_id) && Path::new(&full_path).exists() {
             add_plots.push_str(&format!(r#"    \addplot[{}, solid, thick, mark={}, error bars/.cd, y dir=both, y explicit]
         table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/{}}};
     \addlegendentry{{{}}}
