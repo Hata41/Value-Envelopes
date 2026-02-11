@@ -4,6 +4,8 @@ use ndarray_rand::RandomExt;
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::io::{self, Write};
+use std::time::Instant;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TabularMDP {
@@ -160,11 +162,28 @@ pub fn generate_dataset(
     mdp: &TabularMDP,
     k: usize,
     seed: Option<u64>,
+    show_progress: bool,
 ) -> Vec<(Vec<usize>, Vec<usize>, Vec<f64>)> {
     let mut rng = if let Some(s) = seed { StdRng::seed_from_u64(s) } else { StdRng::from_entropy() };
     let mut trajectories = Vec::with_capacity(k);
 
-    for _ in 0..k {
+    let start_time = Instant::now();
+
+    for i in 0..k {
+        if show_progress && i % 1000 == 0 {
+            let elapsed = start_time.elapsed();
+            let progress = i as f64 / k as f64;
+            let percentage = progress * 100.0;
+            if progress > 0.0 {
+                let total_estimated = elapsed.div_f64(progress);
+                let remaining = total_estimated - elapsed;
+                print!("\rDataset Generation: {}/{} ({:.1}%) ETA: {:.1}s", i, k, percentage, remaining.as_secs_f64());
+            } else {
+                print!("\rDataset Generation: {}/{} ({:.1}%)", i, k, percentage);
+            }
+            io::stdout().flush().unwrap();
+        }
+
         let mut states = Vec::with_capacity(mdp.h + 1);
         let mut actions = Vec::with_capacity(mdp.h);
         let mut rewards = Vec::with_capacity(mdp.h);
@@ -185,5 +204,10 @@ pub fn generate_dataset(
         }
         trajectories.push((states, actions, rewards));
     }
+
+    if show_progress {
+        println!("\rDataset Generation: {}/{} (100.0%)", k, k);
+    }
+
     trajectories
 }

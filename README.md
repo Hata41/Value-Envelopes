@@ -35,7 +35,7 @@ Experiments can be configured via YAML. You can provide a single experiment, a l
 
 ### Key Configuration Fields:
 - `experiment`: One of `regret_curves`, `expanding_reward`, `sliding_window`, `convergence`.
-- `h`, `s`, `a`: MDP dimensions (Horizon, States, Actions).
+- `h`, `s`, `a`: MDP dimensions ($h$orizon, $s$tates, $a$ctions).
 - `t`: Number of online episodes.
 - `n_seeds`: Number of independent runs for averaging.
 - `baseline_agents`: List of standard agents (e.g., `standard_hoeffding`, `standard_bernstein`).

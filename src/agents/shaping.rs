@@ -1,6 +1,8 @@
 use ndarray::prelude::*;
 use rand::prelude::*;
 use rand::distributions::WeightedIndex;
+use std::io::{self, Write};
+use std::time::Instant;
 use crate::mdp::{TabularMDP, evaluate_policy, value_iteration};
 use crate::offline::OfflineBounds;
 
@@ -10,6 +12,7 @@ pub fn run_v_shaping(
     t: usize,
     delta: f64,
     seed: u64,
+    show_progress: bool,
 ) -> (Vec<f64>, Vec<f64>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let (v_opt, _) = value_iteration(mdp);
@@ -25,7 +28,22 @@ pub fn run_v_shaping(
     let mut regrets: Vec<f64> = Vec::with_capacity(t);
     let mut rewards = Vec::with_capacity(t);
 
-    for _ in 0..t {
+    let start_time = Instant::now();
+
+    for episode in 0..t {
+        if show_progress && episode % 100 == 0 {
+            let elapsed = start_time.elapsed();
+            let progress = episode as f64 / t as f64;
+            let percentage = progress * 100.0;
+            if progress > 0.0 {
+                let total_estimated = elapsed.div_f64(progress);
+                let remaining = total_estimated - elapsed;
+                print!("\rAgent Progress: {}/{} ({:.1}%) ETA: {:.1}s", episode, t, percentage, remaining.as_secs_f64());
+            } else {
+                print!("\rAgent Progress: {}/{} ({:.1}%)", episode, t, percentage);
+            }
+            io::stdout().flush().unwrap();
+        }
         let mut p_hat = Array4::<f64>::zeros((mdp.h, mdp.s, mdp.a, mdp.s));
         for hh_ in 0..mdp.h {
             for ss_ in 0..mdp.s {
@@ -131,6 +149,10 @@ pub fn run_v_shaping(
         rewards.push(ep_reward);
     }
 
+    if show_progress {
+        println!();
+    }
+
     (regrets, rewards)
 }
 
@@ -140,6 +162,7 @@ pub fn run_q_shaping(
     t: usize,
     delta: f64,
     seed: u64,
+    show_progress: bool,
 ) -> (Vec<f64>, Vec<f64>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let (v_opt, _) = value_iteration(mdp);
@@ -155,7 +178,22 @@ pub fn run_q_shaping(
     let mut regrets: Vec<f64> = Vec::with_capacity(t);
     let mut rewards = Vec::with_capacity(t);
 
-    for _ in 0..t {
+    let start_time = Instant::now();
+
+    for episode in 0..t {
+        if show_progress && episode % 100 == 0 {
+            let elapsed = start_time.elapsed();
+            let progress = episode as f64 / t as f64;
+            let percentage = progress * 100.0;
+            if progress > 0.0 {
+                let total_estimated = elapsed.div_f64(progress);
+                let remaining = total_estimated - elapsed;
+                print!("\rAgent Progress: {}/{} ({:.1}%) ETA: {:.1}s", episode, t, percentage, remaining.as_secs_f64());
+            } else {
+                print!("\rAgent Progress: {}/{} ({:.1}%)", episode, t, percentage);
+            }
+            io::stdout().flush().unwrap();
+        }
         let mut p_hat = Array4::<f64>::zeros((mdp.h, mdp.s, mdp.a, mdp.s));
         for hh_ in 0..mdp.h {
             for ss_ in 0..mdp.s {
@@ -262,6 +300,10 @@ pub fn run_q_shaping(
         rewards.push(ep_reward);
     }
 
+    if show_progress {
+        println!();
+    }
+
     (regrets, rewards)
 }
 
@@ -271,6 +313,7 @@ pub fn run_bonus_shaping_only(
     t: usize,
     delta: f64,
     seed: u64,
+    show_progress: bool,
 ) -> (Vec<f64>, Vec<f64>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let (v_opt, _) = value_iteration(mdp);
@@ -281,7 +324,23 @@ pub fn run_bonus_shaping_only(
     let c1 = 2.0;
     let c2 = 14.0 / 3.0;
     let mut regrets: Vec<f64> = Vec::with_capacity(t);
-    for _ in 0..t {
+
+    let start_time = Instant::now();
+
+    for episode in 0..t {
+        if show_progress && episode % 100 == 0 {
+            let elapsed = start_time.elapsed();
+            let progress = episode as f64 / t as f64;
+            let percentage = progress * 100.0;
+            if progress > 0.0 {
+                let total_estimated = elapsed.div_f64(progress);
+                let remaining = total_estimated - elapsed;
+                print!("\rAgent Progress: {}/{} ({:.1}%) ETA: {:.1}s", episode, t, percentage, remaining.as_secs_f64());
+            } else {
+                print!("\rAgent Progress: {}/{} ({:.1}%)", episode, t, percentage);
+            }
+            io::stdout().flush().unwrap();
+        }
         let mut p_hat = Array4::<f64>::zeros((mdp.h, mdp.s, mdp.a, mdp.s));
         for hh_ in 0..mdp.h {
             for ss_ in 0..mdp.s {
@@ -356,6 +415,11 @@ pub fn run_bonus_shaping_only(
             ss_current = ss_next;
         }
     }
+
+    if show_progress {
+        println!();
+    }
+
     (regrets, Vec::new())
 }
 
@@ -365,6 +429,7 @@ pub fn run_upper_bonus_shaping(
     t: usize,
     delta: f64,
     seed: u64,
+    show_progress: bool,
 ) -> (Vec<f64>, Vec<f64>) {
     let mut rng = StdRng::seed_from_u64(seed);
     let (v_opt, _) = value_iteration(mdp);
@@ -386,7 +451,23 @@ pub fn run_upper_bonus_shaping(
         }
     }
     let mut regrets: Vec<f64> = Vec::with_capacity(t);
-    for _ in 0..t {
+
+    let start_time = Instant::now();
+
+    for episode in 0..t {
+        if show_progress && episode % 100 == 0 {
+            let elapsed = start_time.elapsed();
+            let progress = episode as f64 / t as f64;
+            let percentage = progress * 100.0;
+            if progress > 0.0 {
+                let total_estimated = elapsed.div_f64(progress);
+                let remaining = total_estimated - elapsed;
+                print!("\rAgent Progress: {}/{} ({:.1}%) ETA: {:.1}s", episode, t, percentage, remaining.as_secs_f64());
+            } else {
+                print!("\rAgent Progress: {}/{} ({:.1}%)", episode, t, percentage);
+            }
+            io::stdout().flush().unwrap();
+        }
         let mut p_hat = Array4::<f64>::zeros((mdp.h, mdp.s, mdp.a, mdp.s));
         for hh_ in 0..mdp.h {
             for ss_ in 0..mdp.s {
@@ -454,5 +535,10 @@ pub fn run_upper_bonus_shaping(
             ss_current = ss_next;
         }
     }
+
+    if show_progress {
+        println!();
+    }
+
     (regrets, Vec::new())
 }

@@ -5,18 +5,17 @@
   t: 10000
   n_seeds: 10
   layered: true
-  k_values: [4000, 8000]
+  k_values: [160000]
   compile: true
   use_h_split: true
   seed: 42
   reward_window_width: 0.1
   plot_resolution: 20
   baseline_agents:
-    - standard_hoeffding
+    # - standard_hoeffding
     - standard_bernstein
   shaping_agents:
-    - count_init_hoeffding
-    - count_init_bernstein
-    - v_shaping
-    - q_shaping
+    # - count_init_hoeffding
+    # - count_init_bernstein
+    # - v_shaping
     - q_shaping

@@ -47,6 +47,9 @@ pub struct Args {
 
     #[arg(long, default_value_t = 200)]
     pub plot_resolution: usize,
+
+    #[arg(long, default_value_t = true)]
+    pub show_progress: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +98,9 @@ pub struct ExperimentConfig {
 
     #[serde(default = "default_shaping_agents")]
     pub shaping_agents: Option<Vec<String>>,
+
+    #[serde(default = "default_show_progress")]
+    pub show_progress: bool,
 }
 
 fn default_layered() -> bool { true }
@@ -109,6 +115,7 @@ fn default_reward_window_width() -> f64 { 0.1 }
 fn default_plot_resolution() -> usize { 200 }
 fn default_baseline_agents() -> Option<Vec<String>> { Some(vec!["standard_hoeffding".to_string()]) }
 fn default_shaping_agents() -> Option<Vec<String>> { Some(vec!["v_shaping".to_string(), "q_shaping".to_string(), "count_init_hoeffding".to_string()]) }
+fn default_show_progress() -> bool { true }
 
 impl From<Args> for ExperimentConfig {
     fn from(args: Args) -> Self {
@@ -132,6 +139,7 @@ impl From<Args> for ExperimentConfig {
             plot_resolution: args.plot_resolution,
             baseline_agents: Some(vec!["standard_hoeffding".to_string()]),
             shaping_agents: Some(vec!["v_shaping".to_string(), "q_shaping".to_string(), "count_init_hoeffding".to_string()]),
+            show_progress: args.show_progress,
         }
     }
 }
@@ -263,16 +271,16 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     // Standard Agents (No Offline Data)
     if baseline_agents.contains(&"standard_hoeffding".to_string()) {
         println!("Running Standard UCBVI (Hoeffding)...");
-        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
-            run_standard_ucbvi(&mdp, t, delta, seed)
+        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
+            run_standard_ucbvi(&mdp, t, delta, seed, i == 0)
         }).collect();
         save_regret_data(&format!("{}/Standard_UCBVI_Hoeffding.dat", folder_name), &standard_results, t, config.plot_resolution);
     }
 
     if baseline_agents.contains(&"standard_bernstein".to_string()) {
         println!("Running Standard UCBVI (Bernstein)...");
-        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
-            run_standard_ucbvi_bernstein(&mdp, t, delta, seed)
+        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
+            run_standard_ucbvi_bernstein(&mdp, t, delta, seed, i == 0)
         }).collect();
         save_regret_data(&format!("{}/Standard_UCBVI_Bernstein.dat", folder_name), &standard_results, t, config.plot_resolution);
     }
@@ -280,7 +288,7 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     if !shaping_agents.is_empty() {
         for &k in &k_values {
             println!("Running shaping agents for K={}...", k);
-            let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64));
+            let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64), config.show_progress);
             let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), config.use_h_split);
 
             for agent in &shaping_agents {
@@ -293,12 +301,12 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
                 };
 
                 if run_agent {
-                    let results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().map(|&seed| {
+                    let results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
                         match agent.as_str() {
-                            "v_shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed),
-                            "q_shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed),
-                            "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false),
-                            "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true),
+                            "v_shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                            "q_shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                            "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false, i == 0),
+                            "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true, i == 0),
                             _ => unreachable!(),
                         }
                     }).collect();
@@ -405,21 +413,21 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
             agent_seeds.push(rng.r#gen::<u64>());
         }
 
-        let dataset = generate_dataset(&mdp, k, Some(mdp_seed + 2));
+        let dataset = generate_dataset(&mdp, k, Some(mdp_seed + 2), config.show_progress);
         let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(mdp_seed + 3), config.use_h_split);
 
-        let baseline_results: Vec<f64> = agent_seeds.par_iter().map(|&seed| {
-            let (regrets, _) = run_standard_ucbvi(&mdp, t, delta, seed);
+        let baseline_results: Vec<f64> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
+            let (regrets, _) = run_standard_ucbvi(&mdp, t, delta, seed, i == 0);
             regrets.iter().sum::<f64>()
         }).collect();
 
         for algo in shaping_agents {
-            let algo_results: Vec<f64> = agent_seeds.par_iter().map(|&seed| {
+            let algo_results: Vec<f64> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
                 let (regrets, _) = match algo.as_str() {
-                    "Bonus_Shaping_Only" | "v_shaping" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed),
-                    "Upper_Bonus_Shaping" | "q_shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed),
-                    "Count_Init_UCBVI" | "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false),
-                    "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true),
+                    "Bonus_Shaping_Only" | "v_shaping" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                    "Upper_Bonus_Shaping" | "q_shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                    "Count_Init_UCBVI" | "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false, i == 0),
+                    "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true, i == 0),
                     _ => (vec![0.0; t], vec![0.0; t])
                 };
                 regrets.iter().sum::<f64>()
@@ -498,7 +506,7 @@ fn run_convergence_experiment(config: &ExperimentConfig) -> Result<(), Box<dyn s
     }
 
     println!("Generating dataset (K_max={})...", k_max);
-    let large_dataset = generate_dataset(&mdp, k_max, Some(master_seed + 1));
+    let large_dataset = generate_dataset(&mdp, k_max, Some(master_seed + 1), config.show_progress);
 
     let mut file = File::create("data/R_vs_D.dat").unwrap();
     let mut header = String::from("K");
@@ -655,7 +663,7 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
         if shaping_agents.contains(&"v_shaping".to_string()) {
             add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/V_Shaping.dat}};
-    \addlegendentry{{V-Shaping (K={}k)}}
+    \addlegendentry{{V-Shaping ($K={}$k)}}
 "#, color, config.t, k, k/1000));
         }
         
@@ -663,7 +671,7 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
         if shaping_agents.contains(&"count_init_hoeffding".to_string()) {
             add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, dashed, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Hoeffding.dat}};
-    \addlegendentry{{Count-Init Hoeffding (K={}k)}}
+    \addlegendentry{{Count-Init Hoeffding ($K={}$k)}}
 "#, color, config.t, k, k/1000));
         }
 
@@ -671,7 +679,7 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
         if shaping_agents.contains(&"count_init_bernstein".to_string()) {
             add_plots.push_str(&format!(r#"    \addplot[{}, mark=*, solid, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Bernstein.dat}};
-    \addlegendentry{{Count-Init Bernstein (K={}k)}}
+    \addlegendentry{{Count-Init Bernstein ($K={}$k)}}
 "#, color, config.t, k, k/1000));
         }
     }
@@ -711,7 +719,7 @@ fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
 \begin{{tikzpicture}}
     \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_{}}}
     \begin{{axis}}[
-        title={{V-Shaping Performance vs. Offline Data Size (K)}},
+        title={{V-Shaping Performance vs. Offline Data Size ($K$)}},
         xlabel={{Fraction of $T$ (T={})}},
         ylabel={{Cumulative Regret}},
         width=14cm,
@@ -747,7 +755,7 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
         if shaping_agents.contains(&"q_shaping".to_string()) {
             add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Q_Shaping.dat}};
-    \addlegendentry{{Q-Shaping (K={}k)}}
+    \addlegendentry{{Q-Shaping ($K={}$k)}}
 "#, color, config.t, k, k/1000));
         }
         
@@ -755,7 +763,7 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
         if shaping_agents.contains(&"count_init_hoeffding".to_string()) {
             add_plots.push_str(&format!(r#"    \addplot[{}, mark=o, dashed, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Hoeffding.dat}};
-    \addlegendentry{{Count-Init Hoeffding (K={}k)}}
+    \addlegendentry{{Count-Init Hoeffding ($K={}$k)}}
 "#, color, config.t, k, k/1000));
         }
 
@@ -763,7 +771,7 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
         if shaping_agents.contains(&"count_init_bernstein".to_string()) {
             add_plots.push_str(&format!(r#"    \addplot[{}, mark=*, solid, error bars/.cd, y dir=both, y explicit] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret, y error=StdDev] {{\mainfolder/K={}/Count_Init_UCBVI_Bernstein.dat}};
-    \addlegendentry{{Count-Init Bernstein (K={}k)}}
+    \addlegendentry{{Count-Init Bernstein ($K={}$k)}}
 "#, color, config.t, k, k/1000));
         }
     }
@@ -803,7 +811,7 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
 \begin{{tikzpicture}}
     \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_{}}}
     \begin{{axis}}[
-        title={{Q-Shaping Performance vs. Offline Data Size (K)}},
+        title={{Q-Shaping Performance vs. Offline Data Size ($K$)}},
         xlabel={{Fraction of $T$ (T={})}},
         ylabel={{Cumulative Regret}},
         width=14cm,
@@ -825,9 +833,9 @@ fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
 
 fn generate_mdp_tex(config: &ExperimentConfig) -> String {
     let (folder, title, xlabel, axis_type, extra_options) = if config.experiment == "expanding_reward" {
-        ("ExpandingReward", "Expanding Reward: Bonus Shaping Comparison", r"Reward Range Width x", "semilogxaxis", "")
+        ("ExpandingReward", "Expanding Reward: Bonus Shaping Comparison", r"Reward Range Width $x$", "semilogxaxis", "")
     } else {
-        ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = (x, x+0.1)$", "axis", "")
+        ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = ($x$, $x+0.1$)", "axis", "")
     };
 
     let folder_path = format!("data/{}", folder);
@@ -890,8 +898,8 @@ fn generate_r_vs_d_tex(_config: &ExperimentConfig) -> String {
 \begin{axis}[
     width=12cm,
     height=8cm,
-    title={Convergence of Bounds at h=2},
-    xlabel={Offline Dataset Size (K trajectories)},
+    title={Convergence of Bounds at $h=2$},
+    xlabel={Offline Dataset Size ($K$ trajectories)},
     ylabel={Width of Bounding Interval},
     legend pos=north east,       
     legend style={
