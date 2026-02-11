@@ -164,8 +164,12 @@ pub fn plot_mdp_trials(
 
     let algos = vec![
         ("Bonus_Shaping_Only.dat", "Full-Bonus", &PURPLE),
+        ("v_shaping.dat", "V-Shaping (Full)", &PURPLE),
         ("Upper_Bonus_Shaping.dat", "Upper-Bonus", &GREEN),
+        ("q_shaping.dat", "Q-Shaping (Upper)", &GREEN),
         ("Count_Init_UCBVI.dat", "Count-Init", &BLUE),
+        ("count_init_hoeffding.dat", "Count-Init (Hoeffding)", &BLUE),
+        ("count_init_bernstein.dat", "Count-Init (Bernstein)", &BLUE),
     ];
 
     let mut all_data = Vec::new();

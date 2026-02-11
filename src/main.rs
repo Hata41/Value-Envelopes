@@ -416,14 +416,11 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         for algo in shaping_agents {
             let algo_results: Vec<f64> = agent_seeds.par_iter().map(|&seed| {
                 let (regrets, _) = match algo.as_str() {
-                    "Bonus_Shaping_Only" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed),
-                    "Upper_Bonus_Shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed),
+                    "Bonus_Shaping_Only" | "v_shaping" => run_bonus_shaping_only(&mdp, &offline_bounds, t, delta, seed),
+                    "Upper_Bonus_Shaping" | "q_shaping" => run_upper_bonus_shaping(&mdp, &offline_bounds, t, delta, seed),
                     "Count_Init_UCBVI" | "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false),
-                    _ => {
-                        // If it's an agent from another experiment type, we can't run it here easily without mapping.
-                        // For now just skip it or warn?
-                        (vec![0.0; t], vec![0.0; t])
-                    }
+                    "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true),
+                    _ => (vec![0.0; t], vec![0.0; t])
                 };
                 regrets.iter().sum::<f64>()
             }).collect();
@@ -616,7 +613,12 @@ fn compile_and_move_pdfs(config: &ExperimentConfig) -> Result<(), Box<dyn std::e
         // Move the generated PDF to pdf/ directory
         let pdf_file = tex_path.with_extension("pdf");
         if pdf_file.exists() {
-            let target_pdf = pdf_dir.join(pdf_file.file_name().unwrap());
+            let target_name = if tex_file == "mdp_trials.tex" {
+                format!("{}_mdp_trials.pdf", config.experiment)
+            } else {
+                pdf_file.file_name().unwrap().to_str().unwrap().to_string()
+            };
+            let target_pdf = pdf_dir.join(target_name);
             fs::rename(&pdf_file, &target_pdf)?;
             println!("Moved {} to {}", pdf_file.display(), target_pdf.display());
         }
@@ -827,6 +829,30 @@ fn generate_mdp_tex(config: &ExperimentConfig) -> String {
     } else {
         ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = (x, x+0.1)$", "axis", "")
     };
+
+    let folder_path = format!("data/{}", folder);
+    let mut add_plots = String::new();
+    
+    let possible_plots = vec![
+        ("Bonus_Shaping_Only.dat", "Full-Bonus", "purple", "square*"),
+        ("v_shaping.dat", "V-Shaping (Full-Bonus)", "purple", "square*"),
+        ("Upper_Bonus_Shaping.dat", "Upper-Bonus", "green!70!black", "o"),
+        ("q_shaping.dat", "Q-Shaping (Upper-Bonus)", "green!70!black", "o"),
+        ("Count_Init_UCBVI.dat", "Count-Init", "blue", "triangle*"),
+        ("count_init_hoeffding.dat", "Count-Init (Hoeffding)", "blue", "triangle*"),
+        ("count_init_bernstein.dat", "Count-Init (Bernstein)", "blue", "diamond*"),
+    ];
+
+    for (file, label, color, mark) in possible_plots {
+        let full_path = format!("{}/{}", folder_path, file);
+        if Path::new(&full_path).exists() {
+            add_plots.push_str(&format!(r#"    \addplot[{}, solid, thick, mark={}, error bars/.cd, y dir=both, y explicit]
+        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/{}}};
+    \addlegendentry{{{}}}
+"#, color, mark, file, label));
+        }
+    }
+
     format!(r#"\documentclass[multi=standalonefigure]{{standalone}}
 \usepackage{{amsmath}}
 \usepackage{{tikz}}
@@ -847,19 +873,11 @@ fn generate_mdp_tex(config: &ExperimentConfig) -> String {
         legend columns=2,
         legend cell align={{left}}
     ]
-    \addplot[purple, solid, thick, mark=square*, error bars/.cd, y dir=both, y explicit]
-        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/Bonus_Shaping_Only.dat}};
-    \addlegendentry{{Full-Bonus}}
-    \addplot[green!70!black, solid, thick, mark=o, error bars/.cd, y dir=both, y explicit]
-        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/Upper_Bonus_Shaping.dat}};
-    \addlegendentry{{Upper-Bonus}}
-    \addplot[blue, solid, thick, mark=triangle*, error bars/.cd, y dir=both, y explicit]
-        table[x=X_Value, y=Mean_Improvement, y error=Std_Improvement] {{\folderpath/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init}}
+{}
     \end{{{}}}
 \end{{tikzpicture}}
 \end{{standalonefigure}}
-\end{{document}}"#, folder, axis_type, title, xlabel, axis_type)
+\end{{document}}"#, folder, axis_type, title, xlabel, add_plots, axis_type)
 }
 
 fn generate_r_vs_d_tex(_config: &ExperimentConfig) -> String {
