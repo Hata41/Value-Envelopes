@@ -6,6 +6,8 @@ use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::process::Command;
 use value_envelopes::*;
 use ndarray::prelude::*;
@@ -52,6 +54,9 @@ pub struct Args {
 
     #[arg(long, default_value_t = true)]
     pub show_progress: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub benchmark: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +67,9 @@ pub struct ExperimentConfig {
     pub a: usize,
     pub t: usize,
     pub n_seeds: usize,
+
+    #[serde(default)]
+    pub benchmark: bool,
 
     #[serde(default = "default_layered")]
     pub layered: bool,
@@ -132,6 +140,7 @@ impl From<Args> for ExperimentConfig {
             a: args.a,
             t: args.t,
             n_seeds: args.n_seeds,
+            benchmark: args.benchmark,
             layered: true,
             intermediate_reward: (0.0, 0.0),
             terminal_reward: (0.0, 1.0),
@@ -238,7 +247,6 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     let s = config.s;
     let a = config.a;
     let t = config.t;
-    let n_seeds = config.n_seeds;
     let delta = config.delta;
     let master_seed = config.seed;
 
@@ -260,12 +268,6 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
         fs::create_dir_all(format!("{}/K={}", folder_name, k)).unwrap();
     }
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(master_seed + 1);
-    let mut agent_seeds = Vec::new();
-    for _ in 0..n_seeds {
-        agent_seeds.push(rng.r#gen::<u64>());
-    }
-
     let mut baseline_agents = config.baseline_agents.clone().unwrap_or_default();
     let mut shaping_agents = config.shaping_agents.clone().unwrap_or_default();
     
@@ -275,49 +277,142 @@ fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error
     shaping_agents.sort();
     shaping_agents.dedup();
 
-    // Standard Agents (No Offline Data)
-    if baseline_agents.contains(&"standard_hoeffding".to_string()) {
-        println!("Running Standard UCBVI (Hoeffding)...");
-        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
-            run_standard_ucbvi(&mdp, t, delta, seed, i == 0)
-        }).collect();
-        save_regret_data(&format!("{}/Standard_UCBVI_Hoeffding.dat", folder_name), &standard_results, t, config.plot_resolution);
-    }
+    if config.benchmark {
+        println!("🚀 Running Benchmark Mode (n_seeds=1, All Agents Parallel)");
+        let seed = master_seed;
 
-    if baseline_agents.contains(&"standard_bernstein".to_string()) {
-        println!("Running Standard UCBVI (Bernstein)...");
-        let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
-            run_standard_ucbvi_bernstein(&mdp, t, delta, seed, i == 0)
-        }).collect();
-        save_regret_data(&format!("{}/Standard_UCBVI_Bernstein.dat", folder_name), &standard_results, t, config.plot_resolution);
-    }
+        // Step 1: Pre-compute Offline Data (Parallelized)
+        let offline_data: std::collections::HashMap<usize, Arc<OfflineBounds>> = k_values
+            .par_iter()
+            .enumerate()
+            .map(|(i, &k)| {
+                let show_progress = i == 0;
+                let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64), show_progress);
+                let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), config.use_h_split);
+                (k, Arc::new(offline_bounds))
+            })
+            .collect();
 
-    if !shaping_agents.is_empty() {
+        // Step 2: Construct Task List
+        struct Task {
+            name: String,
+            agent_type: String,
+            bounds: Option<Arc<OfflineBounds>>,
+            path: String,
+        }
+
+        let mut tasks = Vec::new();
+
+        // Baselines
+        if baseline_agents.contains(&"standard_hoeffding".to_string()) {
+            tasks.push(Task {
+                name: "Standard UCBVI (Hoeffding)".to_string(),
+                agent_type: "standard_hoeffding".to_string(),
+                bounds: None,
+                path: format!("{}/Standard_UCBVI_Hoeffding.dat", folder_name),
+            });
+        }
+        if baseline_agents.contains(&"standard_bernstein".to_string()) {
+            tasks.push(Task {
+                name: "Standard UCBVI (Bernstein)".to_string(),
+                agent_type: "standard_bernstein".to_string(),
+                bounds: None,
+                path: format!("{}/Standard_UCBVI_Bernstein.dat", folder_name),
+            });
+        }
+
+        // Shaping Agents
         for &k in &k_values {
-            println!("Running shaping agents for K={}...", k);
-            let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64), config.show_progress);
-            let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), config.use_h_split);
-
+            let bounds = offline_data.get(&k).unwrap().clone();
             for agent in &shaping_agents {
-                let (run_agent, filename) = match agent.as_str() {
-                    "v_shaping" => (true, "V_Shaping.dat"),
-                    "q_shaping" => (true, "Q_Shaping.dat"),
-                    "count_init_hoeffding" => (true, "Count_Init_UCBVI_Hoeffding.dat"),
-                    "count_init_bernstein" => (true, "Count_Init_UCBVI_Bernstein.dat"),
-                    _ => (false, ""),
+                let filename = match agent.as_str() {
+                    "v_shaping" => "V_Shaping.dat",
+                    "q_shaping" => "Q_Shaping.dat",
+                    "count_init_hoeffding" => "Count_Init_UCBVI_Hoeffding.dat",
+                    "count_init_bernstein" => "Count_Init_UCBVI_Bernstein.dat",
+                    _ => continue,
                 };
+                tasks.push(Task {
+                    name: format!("{} K={}", agent, k),
+                    agent_type: agent.clone(),
+                    bounds: Some(bounds.clone()),
+                    path: format!("{}/K={}/{}", folder_name, k, filename),
+                });
+            }
+        }
 
-                if run_agent {
-                    let results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
-                        match agent.as_str() {
-                            "v_shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
-                            "q_shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
-                            "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false, i == 0),
-                            "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true, i == 0),
-                            _ => unreachable!(),
-                        }
-                    }).collect();
-                    save_regret_data(&format!("{}/K={}/{}", folder_name, k, filename), &results, t, config.plot_resolution);
+        let total_tasks = tasks.len();
+        let completed_tasks = AtomicUsize::new(0);
+
+        // Step 3: Execute in Parallel
+        tasks.par_iter().enumerate().for_each(|(i, task)| {
+            let show_progress = i == 0;
+            let results = match task.agent_type.as_str() {
+                "standard_hoeffding" => run_standard_ucbvi(&mdp, t, delta, seed, show_progress),
+                "standard_bernstein" => run_standard_ucbvi_bernstein(&mdp, t, delta, seed, show_progress),
+                "v_shaping" => run_v_shaping(&mdp, task.bounds.as_ref().unwrap(), t, delta, seed, show_progress),
+                "q_shaping" => run_q_shaping(&mdp, task.bounds.as_ref().unwrap(), t, delta, seed, show_progress),
+                "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, task.bounds.as_ref().unwrap(), t, delta, seed, false, show_progress),
+                "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, task.bounds.as_ref().unwrap(), t, delta, seed, true, show_progress),
+                _ => return,
+            };
+            
+            save_regret_data(&task.path, &[results], t, config.plot_resolution);
+            let count = completed_tasks.fetch_add(1, Ordering::SeqCst) + 1;
+            println!("\n[{}/{}] Finished {}", count, total_tasks, task.name);
+        });
+    } else {
+        let n_seeds = config.n_seeds;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(master_seed + 1);
+        let mut agent_seeds = Vec::new();
+        for _ in 0..n_seeds {
+            agent_seeds.push(rng.r#gen::<u64>());
+        }
+
+        // Standard Agents (No Offline Data)
+        if baseline_agents.contains(&"standard_hoeffding".to_string()) {
+            println!("Running Standard UCBVI (Hoeffding)...");
+            let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
+                run_standard_ucbvi(&mdp, t, delta, seed, i == 0)
+            }).collect();
+            save_regret_data(&format!("{}/Standard_UCBVI_Hoeffding.dat", folder_name), &standard_results, t, config.plot_resolution);
+        }
+
+        if baseline_agents.contains(&"standard_bernstein".to_string()) {
+            println!("Running Standard UCBVI (Bernstein)...");
+            let standard_results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
+                run_standard_ucbvi_bernstein(&mdp, t, delta, seed, i == 0)
+            }).collect();
+            save_regret_data(&format!("{}/Standard_UCBVI_Bernstein.dat", folder_name), &standard_results, t, config.plot_resolution);
+        }
+
+        if !shaping_agents.is_empty() {
+            for &k in &k_values {
+                println!("Running shaping agents for K={}...", k);
+                let dataset = generate_dataset(&mdp, k, Some(master_seed + k as u64), config.show_progress);
+                let offline_bounds = compute_offline_bounds(&mdp, &dataset, delta, Some(master_seed + k as u64 + 1), config.use_h_split);
+
+                for agent in &shaping_agents {
+                    let (run_agent, filename) = match agent.as_str() {
+                        "v_shaping" => (true, "V_Shaping.dat"),
+                        "q_shaping" => (true, "Q_Shaping.dat"),
+                        "count_init_hoeffding" => (true, "Count_Init_UCBVI_Hoeffding.dat"),
+                        "count_init_bernstein" => (true, "Count_Init_UCBVI_Bernstein.dat"),
+                        _ => (false, ""),
+                    };
+
+                    if run_agent {
+                        let results: Vec<(Vec<f64>, Vec<f64>)> = agent_seeds.par_iter().enumerate().map(|(i, &seed)| {
+                            match agent.as_str() {
+                                "v_shaping" => run_v_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                                "q_shaping" => run_q_shaping(&mdp, &offline_bounds, t, delta, seed, i == 0),
+                                "count_init_hoeffding" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, false, i == 0),
+                                "count_init_bernstein" => run_count_initialized_ucbvi(&mdp, &offline_bounds, t, delta, seed, true, i == 0),
+                                _ => unreachable!(),
+                            }
+                        }).collect();
+                        save_regret_data(&format!("{}/K={}/{}", folder_name, k, filename), &results, t, config.plot_resolution);
+                    }
                 }
             }
         }

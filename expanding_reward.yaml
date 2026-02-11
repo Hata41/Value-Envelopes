@@ -2,14 +2,14 @@
   h: 3
   s: 12
   a: 3
-  t: 1000000
-  n_seeds: 10
-  k: 60000
+  t: 100000
+  n_seeds: 1
+  k: 200000
   baseline_agents: ["standard_bernstein"]
   shaping_agents: ["Bonus_Shaping_Only", "Upper_Bonus_Shaping", "count_init_bernstein"]
   compile: true
   use_h_split: true
   seed: 42
   reward_window_width: 0.1
-  num_points: 5
+  num_points: 3
   plot_resolution: 200
