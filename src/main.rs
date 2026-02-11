@@ -37,6 +37,7 @@ fn main() {
     fs::create_dir_all("data").unwrap();
     fs::create_dir_all("png").unwrap();
     fs::create_dir_all("pdf").unwrap();
+    fs::create_dir_all("tex files").unwrap();
 
     let args = Args::parse();
 
@@ -165,7 +166,7 @@ fn run_mdp_trials(args: &Args, mode: &str) {
         (0..num_points).map(|i| i as f64 * (1.0 - width) / (num_points - 1) as f64).collect()
     };
 
-    let shaping_algos = vec!["Bonus_Shaping_Only", "Upper_Bonus_Shaping", "Count_Init_UCBVI"];
+    let shaping_algos = vec!["Bonus_Shaping_Onl    cargo run --release -- --experiment compile_onlyy", "Upper_Bonus_Shaping", "Count_Init_UCBVI"];
     let mut final_performance: std::collections::HashMap<String, Vec<(f64, f64)>> = std::collections::HashMap::new();
     for algo in &shaping_algos {
         final_performance.insert(algo.to_string(), Vec::new());
@@ -345,9 +346,6 @@ fn compile_and_move_pdfs(args: &Args) -> Result<(), Box<dyn std::error::Error>> 
 
     for tex_file in tex_files {
         let tex_path = tex_dir.join(tex_file);
-        if !tex_path.exists() {
-            continue;
-        }
 
         // Generate the tex content
         let content = match tex_file {
@@ -378,6 +376,14 @@ fn compile_and_move_pdfs(args: &Args) -> Result<(), Box<dyn std::error::Error>> 
             fs::rename(&pdf_file, &target_pdf)?;
             println!("Moved {} to {}", pdf_file.display(), target_pdf.display());
         }
+
+        // Cleanup auxiliary files
+        for ext in &["aux", "log", "out"] {
+            let aux_file = tex_path.with_extension(ext);
+            if aux_file.exists() {
+                let _ = fs::remove_file(aux_file);
+            }
+        }
     }
 
     Ok(())
@@ -385,16 +391,12 @@ fn compile_and_move_pdfs(args: &Args) -> Result<(), Box<dyn std::error::Error>> 
 
 fn generate_plot_v_tex(args: &Args) -> String {
     format!(r#"\documentclass[border=10pt]{{standalone}}
-
 \usepackage{{tikz}}
 \usepackage{{pgfplots}}
 \pgfplotsset{{compat=1.17}}
-
 \begin{{document}}
-
 \begin{{tikzpicture}}
     \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_Layered}}
-
     \begin{{axis}}[
         title={{V-Shaping Performance vs. Offline Data Size (K)}},
         xlabel={{Fraction of $T$ (T={})}},
@@ -409,7 +411,6 @@ fn generate_plot_v_tex(args: &Args) -> String {
         y tick label style={{/pgf/number format/sci, /pgf/number format/precision=1}},
         xticklabel style={{/pgf/number format/fixed}}
     ]
-
     \addplot[
         black,
         dashed,
@@ -417,47 +418,37 @@ fn generate_plot_v_tex(args: &Args) -> String {
         no marks
     ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/Standard_UCBVI.dat}};
     \addlegendentry{{Standard UCBVI}}
-
     \addplot[red, mark=square*] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/V_Shaping.dat}};
     \addlegendentry{{V-Shaping (K=20k)}}
-
     \addplot[orange, mark=square*] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/V_Shaping.dat}};
     \addlegendentry{{V-Shaping (K=40k)}}
-
     \addplot[blue, mark=square*] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/V_Shaping.dat}};
     \addlegendentry{{V-Shaping (K=80k)}}
     \addplot[red, mark=o] 
-    table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{V-Shaping (K=20k)}}
-
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Count_Init_UCBVI.dat}};
+    \addlegendentry{{Count-Init (K=20k)}}
     \addplot[orange, mark=o] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{V-Shaping (K=40k)}}
-
+    \addlegendentry{{Count-Init (K=40k)}}
     \addplot[blue, mark=o] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{V-Shaping (K=80k)}}
+    \addlegendentry{{Count-Init (K=80k)}}
     \end{{axis}}
 \end{{tikzpicture}}
-
-    \end{{document}}"#, args.h, args.s, args.a, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t)
+\end{{document}}"#, args.h, args.s, args.a, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t)
 }
 
 fn generate_plot_q_tex(args: &Args) -> String {
     format!(r#"\documentclass[border=10pt]{{standalone}}
-
 \usepackage{{tikz}}
 \usepackage{{pgfplots}}
 \pgfplotsset{{compat=1.17}}
-
 \begin{{document}}
-
 \begin{{tikzpicture}}
     \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_Layered}}
-
     \begin{{axis}}[
         title={{Q-Shaping Performance vs. Offline Data Size (K)}},
         xlabel={{Fraction of $T$ (T={})}},
@@ -472,7 +463,6 @@ fn generate_plot_q_tex(args: &Args) -> String {
         y tick label style={{/pgf/number format/sci, /pgf/number format/precision=1}},
         xticklabel style={{/pgf/number format/fixed}}
     ]
-
     \addplot[
         black,
         dashed,
@@ -480,172 +470,106 @@ fn generate_plot_q_tex(args: &Args) -> String {
         no marks
     ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/Standard_UCBVI.dat}};
     \addlegendentry{{Standard UCBVI}}
-
     \addplot[red, mark=square*] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Q_Shaping.dat}};
     \addlegendentry{{Q-Shaping (K=20k)}}
-
     \addplot[orange, mark=square*] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/Q_Shaping.dat}};
     \addlegendentry{{Q-Shaping (K=40k)}}
-
     \addplot[blue, mark=square*] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/Q_Shaping.dat}};
     \addlegendentry{{Q-Shaping (K=80k)}}
     \addplot[red, mark=o] 
-    table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Q-Shaping (K=20k)}}
-
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Count_Init_UCBVI.dat}};
+    \addlegendentry{{Count-Init (K=20k)}}
     \addplot[orange, mark=o] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Q-Shaping (K=40k)}}
-
+    \addlegendentry{{Count-Init (K=40k)}}
     \addplot[blue, mark=o] 
         table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Q-Shaping (K=80k)}}
+    \addlegendentry{{Count-Init (K=80k)}}
     \end{{axis}}
 \end{{tikzpicture}}
-
-    \end{{document}}"#, args.h, args.s, args.a, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t)
+\end{{document}}"#, args.h, args.s, args.a, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t)
 }
 
 fn generate_mdp_tex(args: &Args) -> String {
     let (folder, title, xlabel, axis_type, extra_options) = if args.experiment == "expanding_reward" {
         ("ExpandingReward", "Expanding Reward: Bonus Shaping Comparison", r"Reward Range Width x", "semilogxaxis", "")
     } else {
-        ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = (x, x+0.1)", "axis", "")
+        ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = (x, x+0.1)$", "axis", "")
     };
     format!(r#"\documentclass[multi=standalonefigure]{{standalone}}
-
+\usepackage{{amsmath}}
 \usepackage{{tikz}}
 \usepackage{{pgfplots}}
 \pgfplotsset{{compat=1.17}}
-
 \begin{{document}}
-
 \begin{{standalonefigure}}
 \begin{{tikzpicture}}
     \def\folderpath{{data/{}}}
-
     \begin{{{}}}[
-
         {extra_options}title={{{}}},
-
         xlabel={{{}}},
-
         ylabel={{Relative Regret Improvement}},
-
         width=12cm, height=8cm, grid=major,
-
         ymin=-0.1, ymax=1.0,
-
         yticklabel={{\tick}},
-
         legend style={{at={{(0.5,0.98)}}, anchor=north, draw=none, fill=none}},
-
         legend columns=2,
-
         legend cell align={{left}}
-
     ]
-
     \addplot[purple, solid, thick, mark=square*]
-
         table {{\folderpath/Bonus_Shaping_Only.dat}};
-
     \addlegendentry{{Full-Bonus}}
-
     \addplot[green!70!black, solid, thick, mark=o]
-
         table {{\folderpath/Upper_Bonus_Shaping.dat}};
-
     \addlegendentry{{Upper-Bonus}}
-
     \addplot[blue, solid, thick, mark=triangle*]
-
         table {{\folderpath/Count_Init_UCBVI.dat}};
-
     \addlegendentry{{Count-Init}}
-
     \end{{{}}}
-
 \end{{tikzpicture}}
-
 \end{{standalonefigure}}
-
 \end{{document}}"#, folder, axis_type, title, xlabel, axis_type)
 }
 
 fn generate_r_vs_d_tex(_args: &Args) -> String {
     r#"\documentclass[tikz]{standalone}
-
+\usepackage{amsmath}
 \usepackage{pgfplots}
-
 \pgfplotsset{compat=1.17}
-
 \begin{document}
-
 \begin{tikzpicture}
-
 \begin{axis}[
-
     width=12cm,
-
     height=8cm,
-
     title={Convergence of Bounds at h=2},
-
     xlabel={Offline Dataset Size (K trajectories)},
-
     ylabel={Width of Bounding Interval},
-
     legend pos=north east,       
-
     legend style={
-
         draw=none,               
-
         fill=none                
-
     },
-
     grid=major, 
-
 ]
-
 \addplot[orange, mark=*, mark options={fill=orange}] 
-
     table[x=K, y=D_s6] {data/R_vs_D.dat};
-
-\addlegendentry{D_s6}
-
+\addlegendentry{$D_{s6}$}
 \addplot[orange, mark=square*, mark options={fill=orange}] 
-
     table[x=K, y=D_s7] {data/R_vs_D.dat};
-
-\addlegendentry{D_s7}
-
+\addlegendentry{$D_{s7}$}
 \addplot[orange, mark=triangle*, mark options={fill=orange}] 
-
     table[x=K, y=D_s8] {data/R_vs_D.dat};
-
-\addlegendentry{D_s8}
-
+\addlegendentry{$D_{s8}$}
 \addplot[blue, thick] 
-
     table[x=K, y=R_h_layer] {data/R_vs_D.dat};
-
-\addlegendentry{R_h (In-Layer Range)}
-
+\addlegendentry{$R_h$ (In-Layer Range)}
 \addplot[red, thick] 
-
     table[x=K, y=span_h_layer] {data/R_vs_D.dat};
-
 \addlegendentry{Optimal Span}
-
 \end{axis}
-
 \end{tikzpicture}
-
 \end{document}"#.to_string()
 }
