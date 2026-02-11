@@ -104,3 +104,13 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Added by cargo
+/target
+
+# Experiment Outputs
+*.dat
+*.png
+RegretCurves_*/
+ExpandingReward/
+SlidingWindow*/
