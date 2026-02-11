@@ -1,5 +1,6 @@
 use rand::{SeedableRng, Rng};
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::Write;
@@ -10,26 +11,97 @@ use ndarray::prelude::*;
 
 mod plotting;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Serialize, Deserialize, Clone)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+pub struct Args {
     #[arg(short, long, default_value = "regret_curves")]
-    experiment: String,
+    pub experiment: String,
 
     #[arg(short = 'H', long, default_value_t = 4)]
-    h: usize,
+    pub h: usize,
 
     #[arg(short, long, default_value_t = 12)]
-    s: usize,
+    pub s: usize,
 
     #[arg(short, long, default_value_t = 3)]
-    a: usize,
+    pub a: usize,
 
     #[arg(short, long, default_value_t = 10000)]
-    t: usize,
+    pub t: usize,
 
     #[arg(short, long, default_value_t = 10)]
-    n_seeds: usize,
+    pub n_seeds: usize,
+
+    #[arg(long, default_value_t = true)]
+    pub compile: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExperimentConfig {
+    pub experiment: String,
+    pub h: usize,
+    pub s: usize,
+    pub a: usize,
+    pub t: usize,
+    pub n_seeds: usize,
+
+    #[serde(default = "default_layered")]
+    pub layered: bool,
+
+    #[serde(default = "default_intermediate_reward")]
+    pub intermediate_reward: (f64, f64),
+
+    #[serde(default = "default_terminal_reward")]
+    pub terminal_reward: (f64, f64),
+
+    #[serde(default = "default_delta")]
+    pub delta: f64,
+
+    pub k_values: Option<Vec<usize>>,
+
+    #[serde(default = "default_k")]
+    pub k: usize,
+
+    #[serde(default = "default_compile")]
+    pub compile: bool,
+}
+
+fn default_layered() -> bool { true }
+fn default_intermediate_reward() -> (f64, f64) { (0.0, 0.0) }
+fn default_terminal_reward() -> (f64, f64) { (0.0, 1.0) }
+fn default_delta() -> f64 { 0.05 }
+fn default_k() -> usize { 60000 }
+fn default_compile() -> bool { true }
+
+impl From<Args> for ExperimentConfig {
+    fn from(args: Args) -> Self {
+        Self {
+            experiment: args.experiment,
+            h: args.h,
+            s: args.s,
+            a: args.a,
+            t: args.t,
+            n_seeds: args.n_seeds,
+            layered: true,
+            intermediate_reward: (0.0, 0.0),
+            terminal_reward: (0.0, 1.0),
+            delta: 0.05,
+            k_values: None,
+            k: 6000, 
+            compile: args.compile,
+        }
+    }
+}
+
+#[derive(Parser)]
+struct Cli {
+    /// Path to a JSON config file containing a list of experiments
+    #[arg(short, long)]
+    config: Option<String>,
+
+    /// Fallback arguments for single-run mode
+    #[command(flatten)]
+    args: Args,
 }
 
 fn main() {
@@ -39,37 +111,84 @@ fn main() {
     fs::create_dir_all("pdf").unwrap();
     fs::create_dir_all("tex files").unwrap();
 
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    match args.experiment.as_str() {
-        "regret_curves" => run_regret_curves(&args),
-        "expanding_reward" => run_mdp_trials(&args, "ExpandingReward"),
-        "sliding_window" => run_mdp_trials(&args, "SlidingWindow_width0p10"),
-        "convergence" => run_convergence_experiment(&args),
-        "compile_only" => {
-            if let Err(e) = compile_and_move_pdfs(&args) {
-                eprintln!("Error compiling PDFs: {}", e);
-            }
+    if let Some(config_path) = cli.config {
+        let configs = load_configs(&config_path);
+        for config in configs {
+            println!("--- Running experiment: {} ---", config.experiment);
+            execute_experiment(&config);
         }
-        _ => println!("Unknown experiment: {}", args.experiment),
+    } else {
+        execute_experiment(&ExperimentConfig::from(cli.args));
     }
 }
 
-fn run_regret_curves(args: &Args) {
-    let h = args.h;
-    let s = args.s;
-    let a = args.a;
-    let t = args.t;
-    let n_seeds = args.n_seeds;
-    let delta = 0.05;
+fn load_configs(path: &str) -> Vec<ExperimentConfig> {
+    let content = fs::read_to_string(path).expect(&format!("Failed to read config file: {}", path));
+    
+    // Try parsing as a list of experiment configs first
+    if let Ok(configs) = serde_json::from_str::<Vec<ExperimentConfig>>(&content) {
+        return configs;
+    }
+
+    // Try parsing as a list of paths to other config files
+    if let Ok(paths) = serde_json::from_str::<Vec<String>>(&content) {
+        let mut all_configs = Vec::new();
+        for sub_path in paths {
+            all_configs.extend(load_configs(&sub_path));
+        }
+        return all_configs;
+    }
+
+    // Try parsing as a single experiment config
+    if let Ok(config) = serde_json::from_str::<ExperimentConfig>(&content) {
+        return vec![config];
+    }
+
+    panic!("Failed to parse config JSON at {}. It must be a single ExperimentConfig, a list of ExperimentConfigs, or a list of paths (strings).", path);
+}
+
+fn execute_experiment(config: &ExperimentConfig) {
+    let result = match config.experiment.as_str() {
+        "regret_curves" => run_regret_curves(config),
+        "expanding_reward" => run_mdp_trials(config, "ExpandingReward"),
+        "sliding_window" => run_mdp_trials(config, "SlidingWindow_width0p10"),
+        "convergence" => run_convergence_experiment(config),
+        "compile_only" => compile_and_move_pdfs(config),
+        _ => {
+            println!("Unknown experiment: {}", config.experiment);
+            return;
+        }
+    };
+
+    if let Err(e) = result {
+        eprintln!("Experiment '{}' failed: {}", config.experiment, e);
+    }
+}
+
+fn run_regret_curves(config: &ExperimentConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let h = config.h;
+    let s = config.s;
+    let a = config.a;
+    let t = config.t;
+    let n_seeds = config.n_seeds;
+    let delta = config.delta;
     let master_seed = 42;
 
-    let mdp = TabularMDP::random(h, s, a, true, Some((0.0, 0.0)), Some((0.0, 1.0)), master_seed);
+    let mdp = TabularMDP::random(h, s, a, config.layered, Some(config.intermediate_reward), Some(config.terminal_reward), master_seed);
     
-    let folder_name = format!("data/RegretCurves_H{}_S{}_A{}_T{}_Layered", h, s, a, t);
+    let layered_str = if config.layered { "Layered" } else { "Standard" };
+    let folder_name = format!("data/RegretCurves_H{}_S{}_A{}_T{}_{}", h, s, a, t, layered_str);
     fs::create_dir_all(&folder_name).unwrap();
 
-    let k_values = vec![20000, 40000, 80000]; // K values for plotting
+    let mut k_values = config.k_values.clone().unwrap_or_else(|| vec![20000, 40000, 80000]); 
+    for k in k_values.iter_mut() {
+        if *k % h != 0 {
+            *k = *k - (*k % h);
+            println!("Adjusting K to {} to be a multiple of H={}", k, h);
+        }
+    }
     
     for &k in &k_values {
         fs::create_dir_all(format!("{}/K={}", folder_name, k)).unwrap();
@@ -115,9 +234,11 @@ fn run_regret_curves(args: &Args) {
     }
 
     // Compile LaTeX files and move PDFs
-    if let Err(e) = compile_and_move_pdfs(args) {
-        eprintln!("Error compiling PDFs: {}", e);
+    if config.compile {
+        compile_and_move_pdfs(config)?;
     }
+
+    Ok(())
 }
 
 fn save_regret_data(path: &str, results: &[(Vec<f64>, Vec<f64>)], t: usize) {
@@ -146,14 +267,18 @@ fn save_regret_data(path: &str, results: &[(Vec<f64>, Vec<f64>)], t: usize) {
     println!("Saved {}", path);
 }
 
-fn run_mdp_trials(args: &Args, mode: &str) {
-    let h = args.h;
-    let s = args.s;
-    let a = args.a;
-    let t = args.t;
-    let n_seeds = args.n_seeds;
-    let delta = 0.05;
-    let k = 6000;
+fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let h = config.h;
+    let s = config.s;
+    let a = config.a;
+    let t = config.t;
+    let n_seeds = config.n_seeds;
+    let delta = config.delta;
+    let mut k = config.k;
+    if k % h != 0 {
+        k = k - (k % h);
+        println!("Adjusting K to {} to be a multiple of H={}", k, h);
+    }
     let num_points = 5;
 
     let folder_name = format!("data/{}", mode);
@@ -166,7 +291,7 @@ fn run_mdp_trials(args: &Args, mode: &str) {
         (0..num_points).map(|i| i as f64 * (1.0 - width) / (num_points - 1) as f64).collect()
     };
 
-    let shaping_algos = vec!["Bonus_Shaping_Onl    cargo run --release -- --experiment compile_onlyy", "Upper_Bonus_Shaping", "Count_Init_UCBVI"];
+    let shaping_algos = vec!["Bonus_Shaping_Only", "Upper_Bonus_Shaping", "Count_Init_UCBVI"];
     let mut final_performance: std::collections::HashMap<String, Vec<(f64, f64)>> = std::collections::HashMap::new();
     for algo in &shaping_algos {
         final_performance.insert(algo.to_string(), Vec::new());
@@ -183,7 +308,7 @@ fn run_mdp_trials(args: &Args, mode: &str) {
         println!("Running for x={:.4}, R_term=({:.3}, {:.3})", x, terminal_range.0, terminal_range.1);
         
         let mdp_seed = (x * 100000.0) as u64;
-        let mdp = TabularMDP::random(h, s, a, true, Some((0.0, 0.0)), Some(terminal_range), mdp_seed);
+        let mdp = TabularMDP::random(h, s, a, config.layered, Some(config.intermediate_reward), Some(terminal_range), mdp_seed);
         
         let mut rng = rand::rngs::StdRng::seed_from_u64(mdp_seed + 1);
         let mut agent_seeds = Vec::new();
@@ -239,20 +364,22 @@ fn run_mdp_trials(args: &Args, mode: &str) {
     }
 
     // Compile LaTeX files and move PDFs
-    if let Err(e) = compile_and_move_pdfs(args) {
-        eprintln!("Error compiling PDFs: {}", e);
+    if config.compile {
+        compile_and_move_pdfs(config)?;
     }
+
+    Ok(())
 }
 
-fn run_convergence_experiment(args: &Args) {
-    let h_total = args.h;
-    let s_total = args.s;
-    let a_total = args.a;
-    let delta = 0.05;
+fn run_convergence_experiment(config: &ExperimentConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let h_total = config.h;
+    let s_total = config.s;
+    let a_total = config.a;
+    let delta = config.delta;
     let master_seed = 42;
     let h_specific = 2; // Fixed as in python script
 
-    let mdp = TabularMDP::random(h_total, s_total, a_total, true, None, None, master_seed);
+    let mdp = TabularMDP::random(h_total, s_total, a_total, config.layered, Some(config.intermediate_reward), Some(config.terminal_reward), master_seed);
     let (v_opt, _) = value_iteration(&mdp);
     
     let s_layer = s_total / h_total;
@@ -321,17 +448,19 @@ fn run_convergence_experiment(args: &Args) {
     }
 
     // Compile LaTeX files and move PDFs
-    if let Err(e) = compile_and_move_pdfs(args) {
-        eprintln!("Error compiling PDFs: {}", e);
+    if config.compile {
+        compile_and_move_pdfs(config)?;
     }
+
+    Ok(())
 }
 
-fn compile_and_move_pdfs(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
+fn compile_and_move_pdfs(config: &ExperimentConfig) -> Result<(), Box<dyn std::error::Error>> {
 
     let tex_dir = Path::new("tex files");
     let pdf_dir = Path::new("pdf");
 
-    let tex_files = match args.experiment.as_str() {
+    let tex_files = match config.experiment.as_str() {
         "regret_curves" => vec!["plot_v_shaping_vs_K.tex", "plot_q_shaping_vs_K.tex"],
         "expanding_reward" | "sliding_window" => vec!["mdp_trials.tex"],
         "convergence" => vec!["R_vs_D.tex"],
@@ -349,10 +478,10 @@ fn compile_and_move_pdfs(args: &Args) -> Result<(), Box<dyn std::error::Error>> 
 
         // Generate the tex content
         let content = match tex_file {
-            "plot_v_shaping_vs_K.tex" => generate_plot_v_tex(args),
-            "plot_q_shaping_vs_K.tex" => generate_plot_q_tex(args),
-            "mdp_trials.tex" => generate_mdp_tex(args),
-            "R_vs_D.tex" => generate_r_vs_d_tex(args),
+            "plot_v_shaping_vs_K.tex" => generate_plot_v_tex(config),
+            "plot_q_shaping_vs_K.tex" => generate_plot_q_tex(config),
+            "mdp_trials.tex" => generate_mdp_tex(config),
+            "R_vs_D.tex" => generate_r_vs_d_tex(config),
             _ => continue,
         };
         fs::write(&tex_path, content)?;
@@ -389,14 +518,31 @@ fn compile_and_move_pdfs(args: &Args) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
-fn generate_plot_v_tex(args: &Args) -> String {
+fn generate_plot_v_tex(config: &ExperimentConfig) -> String {
+    let layered_str = if config.layered { "Layered" } else { "Standard" };
+    let k_values = config.k_values.clone().unwrap_or_else(|| vec![20000, 40000, 80000]);
+    
+    let mut add_plots = String::new();
+    let colors = vec!["red", "orange", "blue", "green", "purple"];
+    for (i, &k) in k_values.iter().enumerate() {
+        let color = colors[i % colors.len()];
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/V_Shaping.dat}};
+    \addlegendentry{{V-Shaping (K={}k)}}
+"#, color, config.t, k, k/1000));
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
+    \addlegendentry{{Count-Init (K={}k)}}
+"#, color, config.t, k, k/1000));
+    }
+
     format!(r#"\documentclass[border=10pt]{{standalone}}
 \usepackage{{tikz}}
 \usepackage{{pgfplots}}
 \pgfplotsset{{compat=1.17}}
 \begin{{document}}
 \begin{{tikzpicture}}
-    \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_Layered}}
+    \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_{}}}
     \begin{{axis}}[
         title={{V-Shaping Performance vs. Offline Data Size (K)}},
         xlabel={{Fraction of $T$ (T={})}},
@@ -418,37 +564,37 @@ fn generate_plot_v_tex(args: &Args) -> String {
         no marks
     ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/Standard_UCBVI.dat}};
     \addlegendentry{{Standard UCBVI}}
-    \addplot[red, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/V_Shaping.dat}};
-    \addlegendentry{{V-Shaping (K=20k)}}
-    \addplot[orange, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/V_Shaping.dat}};
-    \addlegendentry{{V-Shaping (K=40k)}}
-    \addplot[blue, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/V_Shaping.dat}};
-    \addlegendentry{{V-Shaping (K=80k)}}
-    \addplot[red, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K=20k)}}
-    \addplot[orange, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K=40k)}}
-    \addplot[blue, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K=80k)}}
+{}
     \end{{axis}}
 \end{{tikzpicture}}
-\end{{document}}"#, args.h, args.s, args.a, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t)
+\end{{document}}"#, config.h, config.s, config.a, config.t, layered_str, config.t, config.t, add_plots)
 }
 
-fn generate_plot_q_tex(args: &Args) -> String {
+fn generate_plot_q_tex(config: &ExperimentConfig) -> String {
+    let layered_str = if config.layered { "Layered" } else { "Standard" };
+    let k_values = config.k_values.clone().unwrap_or_else(|| vec![20000, 40000, 80000]);
+    
+    let mut add_plots = String::new();
+    let colors = vec!["red", "orange", "blue", "green", "purple"];
+    for (i, &k) in k_values.iter().enumerate() {
+        let color = colors[i % colors.len()];
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=square*] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/Q_Shaping.dat}};
+    \addlegendentry{{Q-Shaping (K={}k)}}
+"#, color, config.t, k, k/1000));
+        add_plots.push_str(&format!(r#"    \addplot[{}, mark=o] 
+        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K={}/Count_Init_UCBVI.dat}};
+    \addlegendentry{{Count-Init (K={}k)}}
+"#, color, config.t, k, k/1000));
+    }
+
     format!(r#"\documentclass[border=10pt]{{standalone}}
 \usepackage{{tikz}}
 \usepackage{{pgfplots}}
 \pgfplotsset{{compat=1.17}}
 \begin{{document}}
 \begin{{tikzpicture}}
-    \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_Layered}}
+    \def\mainfolder{{data/RegretCurves_H{}_S{}_A{}_T{}_{}}}
     \begin{{axis}}[
         title={{Q-Shaping Performance vs. Offline Data Size (K)}},
         xlabel={{Fraction of $T$ (T={})}},
@@ -470,31 +616,14 @@ fn generate_plot_q_tex(args: &Args) -> String {
         no marks
     ] table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/Standard_UCBVI.dat}};
     \addlegendentry{{Standard UCBVI}}
-    \addplot[red, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Q_Shaping.dat}};
-    \addlegendentry{{Q-Shaping (K=20k)}}
-    \addplot[orange, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/Q_Shaping.dat}};
-    \addlegendentry{{Q-Shaping (K=40k)}}
-    \addplot[blue, mark=square*] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/Q_Shaping.dat}};
-    \addlegendentry{{Q-Shaping (K=80k)}}
-    \addplot[red, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=20000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K=20k)}}
-    \addplot[orange, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=40000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K=40k)}}
-    \addplot[blue, mark=o] 
-        table[x expr=\thisrow{{Episode}}/ {}, y=CumulativeRegret] {{\mainfolder/K=80000/Count_Init_UCBVI.dat}};
-    \addlegendentry{{Count-Init (K=80k)}}
+{}
     \end{{axis}}
 \end{{tikzpicture}}
-\end{{document}}"#, args.h, args.s, args.a, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t, args.t)
+\end{{document}}"#, config.h, config.s, config.a, config.t, layered_str, config.t, config.t, add_plots)
 }
 
-fn generate_mdp_tex(args: &Args) -> String {
-    let (folder, title, xlabel, axis_type, extra_options) = if args.experiment == "expanding_reward" {
+fn generate_mdp_tex(config: &ExperimentConfig) -> String {
+    let (folder, title, xlabel, axis_type, extra_options) = if config.experiment == "expanding_reward" {
         ("ExpandingReward", "Expanding Reward: Bonus Shaping Comparison", r"Reward Range Width x", "semilogxaxis", "")
     } else {
         ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = (x, x+0.1)$", "axis", "")
@@ -534,7 +663,7 @@ fn generate_mdp_tex(args: &Args) -> String {
 \end{{document}}"#, folder, axis_type, title, xlabel, axis_type)
 }
 
-fn generate_r_vs_d_tex(_args: &Args) -> String {
+fn generate_r_vs_d_tex(_config: &ExperimentConfig) -> String {
     r#"\documentclass[tikz]{standalone}
 \usepackage{amsmath}
 \usepackage{pgfplots}
