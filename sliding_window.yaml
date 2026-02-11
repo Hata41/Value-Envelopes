@@ -1,12 +1,13 @@
 - experiment: sliding_window
   h: 3
-  s: 12
+  s: 9
   a: 3
-  t: 100000
-  n_seeds: 10
-  k: 60000
+  t: 10000
+  n_seeds: 1
+  k: 6000
   compile: true
   use_h_split: true
   seed: 42
   reward_window_width: 0.1
+  num_points: 10
   plot_resolution: 200

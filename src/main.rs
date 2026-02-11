@@ -12,8 +12,7 @@ use ndarray::prelude::*;
 
 mod plotting;
 
-#[derive(Parser, Debug, Serialize, Deserialize, Clone)]
-#[command(author, version, about, long_about = None)]
+#[derive(clap::Args, Debug, Serialize, Deserialize, Clone)]
 pub struct Args {
     #[arg(short, long, default_value = "regret_curves")]
     pub experiment: String,
@@ -48,6 +47,9 @@ pub struct Args {
     #[arg(long, default_value_t = 200)]
     pub plot_resolution: usize,
 
+    #[arg(long, default_value_t = 5)]
+    pub num_points: usize,
+
     #[arg(long, default_value_t = true)]
     pub show_progress: bool,
 }
@@ -77,6 +79,9 @@ pub struct ExperimentConfig {
 
     #[serde(default = "default_k")]
     pub k: usize,
+
+    #[serde(default = "default_num_points")]
+    pub num_points: usize,
 
     #[serde(default = "default_compile")]
     pub compile: bool,
@@ -108,6 +113,7 @@ fn default_intermediate_reward() -> (f64, f64) { (0.0, 0.0) }
 fn default_terminal_reward() -> (f64, f64) { (0.0, 1.0) }
 fn default_delta() -> f64 { 0.05 }
 fn default_k() -> usize { 60000 }
+fn default_num_points() -> usize { 5 }
 fn default_compile() -> bool { true }
 fn default_use_h_split() -> bool { true }
 fn default_seed() -> u64 { 42 }
@@ -132,6 +138,7 @@ impl From<Args> for ExperimentConfig {
             delta: 0.05,
             k_values: None,
             k: 6000, 
+            num_points: args.num_points,
             compile: args.compile,
             use_h_split: !args.no_h_split,
             seed: args.seed,
@@ -374,7 +381,7 @@ fn run_mdp_trials(config: &ExperimentConfig, mode: &str) -> Result<(), Box<dyn s
         k = k - (k % h);
         println!("Adjusting K to {} to be a multiple of H={}", k, h);
     }
-    let num_points = 5;
+    let num_points = config.num_points;
 
     let folder_name = format!("data/{}", mode);
     fs::create_dir_all(&folder_name).unwrap();
@@ -495,7 +502,7 @@ fn run_convergence_experiment(config: &ExperimentConfig) -> Result<(), Box<dyn s
 
     let k_min = 1000;
     let k_max = 100000;
-    let num_points = 25;
+    let num_points = config.num_points;
     let mut k_values = Vec::new();
     for i in 0..num_points {
         let k_raw = k_min + i * (k_max - k_min) / (num_points - 1);
@@ -835,7 +842,7 @@ fn generate_mdp_tex(config: &ExperimentConfig) -> String {
     let (folder, title, xlabel, axis_type, extra_options) = if config.experiment == "expanding_reward" {
         ("ExpandingReward", "Expanding Reward: Bonus Shaping Comparison", r"Reward Range Width $x$", "semilogxaxis", "")
     } else {
-        ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = ($x$, $x+0.1$)", "axis", "")
+        ("SlidingWindow_width0p10", "Sliding Window: Bonus Shaping Comparison", r"Reward Window Start Location ($x$) in $R_{\text{term}} = (x, x+0.1)$", "axis", "")
     };
 
     let folder_path = format!("data/{}", folder);

@@ -9,4 +9,5 @@
   use_h_split: true
   seed: 42
   reward_window_width: 0.1
+  num_points: 5
   plot_resolution: 200
