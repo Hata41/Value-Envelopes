@@ -4,6 +4,7 @@
   a: 3
   t: 10000
   n_seeds: 10
+  std_multiplier: 1.0  # visual error-bar scale (e.g., 0.5, 1.0, 2.0)
   compile: true
   use_h_split: true
   seed: 42

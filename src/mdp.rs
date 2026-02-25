@@ -71,7 +71,7 @@ impl TabularMDP {
                 let next_layer_start = ((hh + 1) % h) * s_layer;
                 for ss in (hh * s_layer)..((hh + 1) * s_layer) {
                     for aa in 0..a {
-                        let rand_probs = Array1::random(s_layer, Uniform::new(0.0, 1.0));
+                        let rand_probs = Array1::random_using(s_layer, Uniform::new(0.0, 1.0), &mut rng);
                         let sum = rand_probs.sum();
                         let mut slice = p.slice_mut(s![hh, ss, aa, next_layer_start..next_layer_start + s_layer]);
                         slice.assign(&(rand_probs / sum));
@@ -80,20 +80,20 @@ impl TabularMDP {
             }
             rho.slice_mut(s![0..s_layer]).fill(1.0 / s_layer as f64);
         } else {
-            p = Array4::random((h, s, a, s), Uniform::new(0.0, 1.0));
+            p = Array4::random_using((h, s, a, s), Uniform::new(0.0, 1.0), &mut rng);
             // rho remains uniform by default in constructor if passed None
         }
 
         let mut r = if let Some((low, high)) = intermediate_reward_range {
             let span = high - low;
-            Array3::random((h, s, a), Uniform::new(0.0, 1.0)) * span + low
+            Array3::random_using((h, s, a), Uniform::new(0.0, 1.0), &mut rng) * span + low
         } else {
-            Array3::random((h, s, a), Uniform::new(0.0, 1.0))
+            Array3::random_using((h, s, a), Uniform::new(0.0, 1.0), &mut rng)
         };
 
         if let Some((low, high)) = terminal_reward_range {
             let span = high - low;
-            let mut v_h_star = Array1::random(s, Uniform::new(0.0, 1.0)) * span + low;
+            let mut v_h_star = Array1::random_using(s, Uniform::new(0.0, 1.0), &mut rng) * span + low;
             
             let mut indices: Vec<usize> = (0..s).collect();
             indices.shuffle(&mut rng);

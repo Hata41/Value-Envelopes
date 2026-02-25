@@ -3,8 +3,8 @@
   s: 30
   a: 3
   t: 1000000
-  n_seeds: 2
-  std_multiplier: 100.0  # visual error-bar scale (e.g., 0.5, 1.0, 2.0)
+  n_seeds: 10
+  std_multiplier: 1.0  # visual error-bar scale (e.g., 0.5, 1.0, 2.0)
   k: 40000
   baseline_agents: ["standard_hoeffding"]
   shaping_agents: ["Bonus_Shaping_Only", "Upper_Bonus_Shaping"]
@@ -12,5 +12,5 @@
   use_h_split: false
   seed: 42
   reward_window_width: 0.1
-  num_points: 3
+  num_points: 30
   plot_resolution: 200

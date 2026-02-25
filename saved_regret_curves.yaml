@@ -1,13 +1,12 @@
 - experiment: regret_curves
-  benchmark: false
+  benchmark: true
   h: 10
   s: 30
   a: 3
-  t: 10000
-  n_seeds: 1
-  std_multiplier: 1.0  # visual error-bar scale (e.g., 0.5, 1.0, 2.0)
+  t: 1000000
+  n_seeds: 3
   layered: true
-  k_values: [50000]
+  k_values: [50000,100000,150000,200000]
 
   compile: true
   use_h_split: false
