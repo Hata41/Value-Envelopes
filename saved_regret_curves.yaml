@@ -3,9 +3,10 @@
   h: 10
   s: 30
   a: 3
-  t: 1000000
-  n_seeds: 3
+  t: 1000
+  n_seeds: 10
   layered: true
+  std_multiplier: 1.0  # visual error-bar scale (e.g., 0.5, 1.0, 2.0)
   k_values: [50000,100000,150000,200000]
 
   compile: true
